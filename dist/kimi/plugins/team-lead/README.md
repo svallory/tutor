@@ -8,7 +8,7 @@ The `team-lead` skill turns the agent into an orchestrator that does not write f
 
 - **Collects and clarifies tasks** — dispatches read-only researcher agents to answer what the code can answer before asking you anything
 - **Picks models per task** — haiku for research/mechanical edits, sonnet for normal development, opus for gnarly work, with escalation when a dev gets stuck
-- **Provisions one git worktree per task** via [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`), optionally driving multi-pane dev tabs through Herdr when `HERDR_ENV=1`
+- **Provisions one git worktree per task** via [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`), optionally driving one Herdr tab per dev when `HERDR_ENV=1`
 - **Reviews and integrates** — acceptance review per task, independent `code-review` pass on PRs, progress tracking across the whole batch
 
 ## Requirements

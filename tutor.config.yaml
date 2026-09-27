@@ -17,11 +17,15 @@ platforms:
     harness: Claude Code
     configDir: .claude
     pluginRootVar: $CLAUDE_PLUGIN_ROOT
+    # Persistent per-plugin data dir (survives plugin updates; the plugin root does not).
+    dataDir: ${CLAUDE_PLUGIN_DATA}
+    # Skill bodies support !`command` injection, run when the skill is invoked.
+    contextInjection: true
     models:
       fast: haiku
       balanced: sonnet
       strong: opus
-      orchestrator: fable
+      orchestrator: opus
   kimi:
     harness: Kimi Code
     configDir: .kimi-code

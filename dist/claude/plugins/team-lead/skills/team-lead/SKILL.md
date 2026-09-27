@@ -47,6 +47,16 @@ Procedure:
    - Missing `herdr` while `HERDR_ENV=1` is set: flag the contradiction (env var claims Herdr but the binary/skill isn't there) rather than silently falling back to non-Herdr mode, since that changes the workflow the user expects.
 6. Never substitute a missing dependency with a manual workaround that skips its purpose (e.g. hand-rolling `git worktree add` instead of `wt` because `wt` is missing) without telling the user you're doing so and why — worktrunk's `wt` carries hooks and config that a bare `git worktree add` skips silently.
 
+## Harness config
+
+Your saved harness choices, loaded automatically when this skill starts:
+
+!`cat "${CLAUDE_PLUGIN_DATA}/harnesses.yaml" 2>/dev/null || echo "HARNESSES: NOT CONFIGURED"`
+
+If the block above says `HARNESSES: NOT CONFIGURED`, run [Harness setup](#harness-setup) before step 0 of the workflow. Otherwise it is the source of truth for which harnesses and models you may launch.
+
+Re-run the setup when the user asks ("reconfigure harnesses", "add codex to the team"), or when a configured harness is gone (`command -v` fails) — tell the user which one and ask before dropping it.
+
 ## Roles and models
 
 | Role | Model | Use for |
@@ -55,13 +65,70 @@ Procedure:
 | Mechanic | `haiku` | Purely mechanical edits: renames, moving files, applying a known pattern to N places, formatting |
 | Developer | `sonnet` | Default for normal tasks: features, bug fixes, tests, small refactors |
 | Senior Dev | `opus` | Tasks where Sonnet will likely struggle or burn attempts: tricky concurrency, gnarly types, subtle bugs, multi-system changes |
-| Squad Leader | `fable` | A lead for one feature. Launch when any of these holds: the work spans 3+ layers or 2+ apps *and* needs design decisions; a data migration or rename touches persisted data; the plan needs investigation before it can be written; or the coordination you would do yourself exceeds ~30 min of your context. Operates exactly like you (may spawn its own devs and subagents — the no-fork rule does not apply to it), and reports back to you at the end |
+| Squad Leader | `opus` | A lead for one feature. Launch when any of these holds: the work spans 3+ layers or 2+ apps *and* needs design decisions; a data migration or rename touches persisted data; the plan needs investigation before it can be written; or the coordination you would do yourself exceeds ~30 min of your context. Operates exactly like you (may spawn its own devs and subagents — the no-fork rule does not apply to it), and reports back to you at the end |
 
-Pick the cheapest role that will finish in one or two attempts. Escalate one tier when a dev gets stuck (see below). Never start at Fable to "be safe".
+Pick the cheapest role that will finish in one or two attempts. Escalate one tier when a dev gets stuck (see below). Never start at the top tier to "be safe".
+
+When the harness config exists, its `routing` decides which harness and model fills each role; the table below is the fallback for a Claude Code-only team. Use [Known harnesses and models](#known-harnesses-and-models) to translate between the two.
 
 Overrides to the table:
 - A "mechanical" change that touches a DB schema, migration, API contract, or serialized key is not mechanical. Researcher first, then Sonnet.
 - Tasks of unknown effort (flaky tests, perf, "sometimes breaks") start at Sonnet with a brief that asks for a reproduction before any fix. If the dev cannot reproduce in 3 attempts, that report is the deliverable; escalate to Opus with it.
+
+## Harness setup
+
+Run when the harness config is missing or the user asks to reconfigure. The goal: a saved list of the coding-agent CLIs the user wants on this team, how to launch each, and which roles each fills.
+
+1. **Detect installed harnesses.** Some CLIs are only on the interactive shell's PATH, so check through a login shell:
+   ```bash
+   for t in claude codex agy gemini kimi klaude pi opencode aider crush cursor-agent amp goose qwen droid copilot; do
+     p=$("${SHELL:-zsh}" -ic "command -v $t" 2>/dev/null | tail -1); [ -n "$p" ] && echo "$t $p"
+   done
+   ```
+2. **Ask which to use.** One multi-select question per group of at most four detected harnesses (the question tool caps options at four; use up to four questions). Label each option with the harness and one line on what it is good for, from [Known harnesses and models](#known-harnesses-and-models). Tell the user they can type any harness that was not detected in "Other" (a wrapper script, a remote runner, a CLI installed somewhere unusual) with its launch command.
+3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. Ask only what you cannot find out (for example which models their subscription includes).
+4. **Propose routing.** Map roles to an ordered list of `harness:model` preferences, cheapest adequate first, following the "best for" column. Ask the user to confirm or edit it in one question with your proposal as the default.
+5. **Save** to `${CLAUDE_PLUGIN_DATA}/harnesses.yaml` (create the directory if needed) and show the user a 5-line summary. Format:
+   ```yaml
+   # team-lead harness config. Written by the team-lead skill; safe to edit by hand.
+   updated: 2026-09-27
+   harnesses:
+     codex:
+       launch: codex -m gpt-5.6-sol -c 'model_reasoning_effort="high"'
+       herdr_kind: codex
+       models: [gpt-5.6-sol]
+       notes: weekly quota; check before assigning M/L work
+     claude:
+       launch: claude --model <model>
+       herdr_kind: claude
+       models: [haiku, sonnet, opus]
+   routing:                     # role -> ordered harness:model preferences
+     researcher:   [agy:gemini-3.1-pro, claude:haiku]
+     mechanic:     [kimi:kimi-for-coding-highspeed, claude:haiku]
+     developer:    [codex:gpt-5.6-sol, kimi:kimi-for-coding, claude:sonnet]
+     senior-dev:   [codex:gpt-5.6-sol@high, claude:opus]
+     reviewer:     [claude:opus, claude:sonnet]
+     squad-leader: [claude:opus]
+   ```
+6. From then on, pick a role's first harness whose quota is available; fall to the next on a quota error, and note the switch in the status table.
+
+## Known harnesses and models
+
+Snapshot as of 2026-09. Model names change often: confirm with the harness's own model list before writing the config, and let the user's config win over this table.
+
+| Harness (CLI) | Models | Best for | Launch notes |
+|---|---|---|---|
+| Claude Code (`claude`) | Haiku 4.5 (`haiku`) | lookups, research that returns text, mechanical edits, running verify and reporting counts | `--model haiku`; cheapest Claude tier |
+| | Sonnet 5 (`sonnet`) | default development: features, bug fixes, tests, `/code-review` passes | |
+| | Opus 5.5 (`opus`) | hard bugs, gnarly types, multi-system changes, reviews of core contracts, squad leaders | |
+| | Fable 5.1 (`fable`) | only when the user asks for it; never for work Opus or Sonnet can do | most expensive tier |
+| Codex CLI (`codex`) | `gpt-5.6-sol` | M/L implementation; strong at following a precise brief | `-c 'model_reasoning_effort="high"'` for M/L (the default effort may be low); weekly quota, so check before assigning; its sandbox may block git writes when the repo's `.git` is outside the worktree (add it to `writable_roots`) |
+| Kimi Code (`kimi`) | `kimi-for-coding-highspeed`, `kimi-for-coding`, `k3`, `k3-256k` | highspeed: mechanical edits and verify runs; `kimi-for-coding`/`k3`: S/M implementation; `k3-256k`: tasks that read a lot of source | use the managed alias `-m kimi-code/<model>`; a bare alias may fail auth. A wrapper that runs Claude Code against Kimi's endpoint (e.g. a `klaude` script) is a drop-in Claude-kind dev with the same skills and hooks |
+| Antigravity (`agy`) | Gemini 3.1 Pro | research with citations, docs lookups, really simple tasks | asks a folder-trust question on first run in a directory; answer it before sending the brief |
+| Gemini CLI (`gemini`) | Gemini models on the user's plan | same niche as `agy` when it is the one configured | |
+| opencode, aider, crush, pi, others | whatever provider the user configured | ask the user; route by the model behind it, not the CLI | record the exact launch command the user gives |
+
+Routing rule of thumb: the cheapest harness that finishes in one or two attempts, with Claude kept for leads, reviews and hard problems when other harnesses are available. A reviewer should use a different model from the dev whose work it reviews.
 
 ## Workflow
 
@@ -78,7 +145,7 @@ Overrides to the table:
    WORKTREE=$(wt list --format json | jq -r --arg b "$BRANCH" '.items[] | select(.branch==$b) | .path')
    ```
    Elsewhere: `git worktree add "../<repo>-<ref>" -b "$BRANCH"` and use that path.
-5. **Launch devs** — inside Herdr use [Herdr mode](#herdr-mode); otherwise use the Agent tool with `run_in_background: true` and the model from the table.
+5. **Launch devs** on the harness and model the config's `routing` gives the role. Inside Herdr use [Herdr mode](#herdr-mode) for every harness. Outside Herdr, a Claude Code dev uses the Agent tool with `run_in_background: true`; another harness runs non-interactively in a background shell (e.g. `codex exec`, `kimi -p`) with its report written to a file.
 6. **Brief each dev** with the [dev brief template](#dev-brief-template).
 7. **Monitor.** Act on completion notifications. Do not poll. Keep a status table (ref, dev, model, state, worktree, last note).
 8. **Review** every delivery with the [review checklist](#review-checklist). Send back with specific findings, or accept.
@@ -124,7 +191,7 @@ When a dev reports stuck after 3 attempts:
 
 1. Read their attempts. Half the time the fix is a missing fact (env var, wrong command, unread convention). Supply it and resend to the same dev.
 2. If the problem is capability, escalate one tier (haiku -> sonnet -> opus) with the failed attempts included in the brief so the next dev does not repeat them. Once the replacement is briefed, retire the original dev (see step 8 of [When a dev says it is finished](#when-a-dev-says-it-is-finished)).
-3. If the problem is design (task underspecified, conflicts with existing architecture), it is yours. Decide, or spawn a Fable Squad Leader if the decision is large, or ask the user if it changes scope.
+3. If the problem is design (task underspecified, conflicts with existing architecture), it is yours. Decide, or spawn a Squad Leader if the decision is large, or ask the user if it changes scope.
 
 Never let a dev exceed 3 attempts. Never let yourself exceed 3 rounds of resend on the same task without escalating or asking the user.
 
@@ -168,7 +235,7 @@ Before accepting a delivery, verify (run commands yourself or dispatch a Haiku r
 
 Reject with concrete findings (`file:line`, what is wrong, what "fixed" looks like) — **all findings in one round**: every round costs the dev a re-test cycle (10–25 min on Angular/turbo repos), so batch the Haiku review, the fact-check, and your own reading before sending anything back. Accept with a one-line note in the status table.
 
-## Squad Leader (Fable) handoff
+## Squad Leader handoff
 
 Spawn a Squad Leader when a feature needs its own planning/coordination loop. Its brief is your brief plus:
 
@@ -199,7 +266,7 @@ Discover peers when you need one (never assume): `herdr agent list` and match `t
 
 Cross-project work: if research shows a task belongs to another repo (a bug report from the wrong app, a shared package), do not spawn its devs under your workspace. Either hand the task to the peer lead with the facts you have, or, if you already started a dev, hand the dev over:
 
-1. Move the dev's pane into the peer's workspace so the user finds it there: `herdr pane move <dev-pane-id> --workspace <peer-workspace-id> --new-tab`, then move the split shell pane with `herdr pane move <shell-pane-id> --tab <new-tab-id>`. Agent names follow the pane; after the move use the name, not the old pane ID.
+1. Move the dev's pane into the peer's workspace so the user finds it there: `herdr pane move <dev-pane-id> --workspace <peer-workspace-id> --new-tab`. Agent names follow the pane; after the move use the name, not the old pane ID.
 2. Send the peer a handoff message (`herdr agent prompt <peer-name-or-pane>`) containing: dev agent name and new pane/tab IDs, worktree path and branch, brief file path, report file path and completion phrase, rules already given to the dev (discussion-first, no deploy, no push until accepted), and the established facts with `file:line`. End with "I am no longer tracking it."
 3. Drop the row from your status table. Only one lead tracks a dev at a time.
 
@@ -211,12 +278,7 @@ Applies only when `test "${HERDR_ENV:-}" = 1` passes. Inside Herdr every dev (Ha
 
 Variables: `HERDR_WORKSPACE_ID` is injected by Herdr into your pane (fall back to `herdr workspace list`). `SPACE_ROOT` is the hyper space root (repo root outside a space). `PROJECT` is the space/repo directory name. **REQUIRED SUB-SKILL:** use the `herdr` skill for command syntax; run `herdr tab`, `herdr pane`, `herdr agent` to confirm current flags before first use.
 
-Each dev gets **one tab with two panes**:
-
-| Pane | cwd | Contents |
-|------|-----|----------|
-| root pane | hyper space root (or repo root outside a space) | Claude Code dev session |
-| split pane | the task worktree | plain shell for the user/you to run things |
+Each dev gets **one tab** whose root pane runs the dev session, with cwd = the hyper space root (or the repo root outside a space). Do not split a shell pane next to it.
 
 Session naming: `[project]-[task-ref]`, e.g. `campaigns-action-types`. Same name for the Claude display name, the Remote Control name, and the Herdr agent name.
 
@@ -226,20 +288,23 @@ tab=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$SPACE_ROOT" --l
 tab_id=$(jq -r .result.tab.tab_id <<<"$tab")
 root_pane=$(jq -r .result.root_pane.pane_id <<<"$tab")
 
-# 2. shell pane in the worktree
-herdr pane split --pane "$root_pane" --direction right --cwd "$WORKTREE" --no-focus >/dev/null
-
-# 3. claude in the root pane, named + remote control; the question tool is
-#    denied so questions come to you, not the operator (see Chain of command)
+# 2. the dev in the root pane, named (+ remote control for Claude Code); the
+#    question tool is denied so questions come to you, not the operator
+#    (see Chain of command)
 name="${PROJECT}-${REF}"
 herdr agent start "$name" --kind claude --pane "$root_pane" \
   -- --name "$name" --remote-control "$name" --model "$MODEL" \
      --disallowedTools AskUserQuestion
+# other harnesses: --kind <herdr_kind from the config>, args after `--` per that
+# CLI, always denying its ask-the-operator tool (pi: `--exclude-tools ask_user`).
+# If `agent start` rejects a kind or a wrapper script, fall back to
+#   herdr pane run "$root_pane" "<launch command from the config>"
+#   herdr agent rename "$root_pane" "$name"
 
-# 4. brief — fire and forget; --timeout is only valid together with --wait
+# 3. brief — fire and forget; --timeout is only valid together with --wait
 herdr agent prompt "$name" "$(cat "$BRIEF_FILE")"
 
-# 5. one background waiter per dev; its completion is your notification
+# 4. one background waiter per dev; its completion is your notification
 herdr agent wait "$name" --timeout 3600000     # run via Bash run_in_background
 ```
 
@@ -326,7 +391,7 @@ Keep one in your working notes (`notes/team-lead-<date>.md` in a hyper space, `a
 - You are editing feature code yourself.
 - You ran `rg`/`cat`/`git log` to answer a question instead of sending it to Haiku.
 - A dev is on attempt 4+.
-- You spawned Fable for a task Sonnet has not failed at.
+- You spawned the top tier for a task a cheaper one has not failed at.
 - You are tailing a dev's output in a loop instead of waiting for its notification.
 - Your brief contains your hypothesis about the fix instead of the facts.
 - Status table is stale relative to what you told the user.
