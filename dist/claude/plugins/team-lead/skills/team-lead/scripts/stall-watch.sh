@@ -14,6 +14,12 @@
 # error) for two consecutive ticks is reported to the leader right away, even
 # while other members work.
 #
+# A member counts as working when Herdr says `working`, or when its pane shows
+# a background shell still running (Claude Code prints "N shell(s) still
+# running" while a backgrounded verify/build runs; Herdr reports that agent as
+# idle/done). `--busy-if CMD` adds a team-wide check: while CMD exits 0 (e.g.
+# `pgrep -f "flock /tmp/mx-heavy.lock"`) the team counts as working.
+#
 # It never reads anything into a model's context unless there is something to
 # act on; the loop itself costs no tokens. Run it in its own Herdr pane (so the
 # user can see and stop it) or with nohup.
@@ -31,6 +37,7 @@
 #   --quiet-min N   Minutes with nobody working before alerting (default 15).
 #   --interval S    Seconds between checks (default 60).
 #   --state-dir D   Where per-team state lives (default ${TMPDIR:-/tmp}/stall-watch).
+#   --busy-if CMD   Shell command; exit 0 means the team is busy (optional).
 #   --once          Run a single check and exit (for testing / cron).
 #   --dry-run       Print the messages instead of sending them.
 #   --snooze L M    Silence team L for M minutes (a leader legitimately waiting
@@ -47,6 +54,7 @@ QUIET_MIN=15
 INTERVAL=60
 STATE_DIR="${TMPDIR:-/tmp}/stall-watch"
 ESCALATE=""
+BUSY_IF=""
 ONCE=0
 DRY=0
 TEAMS=()
@@ -68,6 +76,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --team) TEAMS+=("$2"); shift 2 ;;
     --escalate) ESCALATE="$2"; shift 2 ;;
+    --busy-if) BUSY_IF="$2"; shift 2 ;;
     --quiet-min) QUIET_MIN="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
@@ -131,7 +140,10 @@ check_team() {
   for m in "${members[@]}"; do
     st="$(status_of "$m")"; [[ -z "$st" ]] && st="missing"
     member_lines+="$m=$st; "
-    [[ "$st" == "working" ]] && any_working=1
+    if [[ "$st" == "working" ]]; then any_working=1
+    elif [[ "$st" != "missing" ]] && herdr agent read "$m" --lines 8 2>/dev/null | grep -qE '[0-9]+ (background )?shells? (still )?running'; then
+      any_working=1; member_lines+="(bg shell) "
+    fi
     # stuck in a non-idle, non-working state (approval dialog, error) two ticks in a row
     local bf="$STATE_DIR/$leader.$m.odd"
     case "$st" in
@@ -145,9 +157,17 @@ check_team() {
     esac
   done
 
+  if [[ $any_working -eq 0 && -n "$BUSY_IF" ]] && bash -c "$BUSY_IF" >/dev/null 2>&1; then
+    any_working=1; member_lines+="busy-if=true; "
+  fi
+
   if [[ $any_working -eq 1 ]]; then
     last_active=$now; alerted=0; escalated=0
-  elif (( now >= snooze )); then
+  elif (( now < snooze )); then
+    # snoozed: restart the quiet clock and the episode, so the snooze's end
+    # never escalates at once
+    last_active=$now; alerted=0; escalated=0
+  else
     local quiet=$(( (now - last_active) / 60 ))
     if (( alerted == 0 && quiet >= QUIET_MIN )); then
       local detail=""
