@@ -337,6 +337,22 @@ Do not poll by hand and do not spend a subagent on watching. **Arm this the mome
 
 Calibrate budgets: after each task write the actual brief→DONE time next to the budget class in the status table; adjust the class table when reality disagrees three times in a row.
 
+### Stall watchdog (Herdr, no tokens)
+
+`team-status.sh` needs you awake to read it. A team can also stall silently: a dev goes idle waiting on its leader while the leader believes the dev is busy, and nobody works for hours. Start `stall-watch.sh` once per session in its own Herdr pane (the user can see and stop it); it runs in a plain shell loop, costs no tokens, and only prompts an agent when there is something to act on:
+
+```bash
+herdr pane run <pane> "$SKILL_DIR/skills/team-lead/scripts/stall-watch.sh \
+  --team <leader>='<project>-<glob>' [--team ...] --escalate <your-agent-name> --quiet-min 15"
+```
+
+- A team is a leader plus every agent matching its globs. For your own devs, the leader is you (`--team <you>='<project>-*'`); for a Squad Leader, add a `--team` for it and its devs.
+- When nobody on a team has been `working` for `--quiet-min` minutes, it prompts the leader once per quiet episode with each member's status and the last lines of its pane. If the team is still quiet `--quiet-min` minutes later, it prompts `--escalate` once.
+- A member stuck in a non-idle, non-working state (approval dialog, error) for two checks is reported to the leader right away.
+- It only prompts agents that are not `working`, retrying on the next tick otherwise.
+- When your team is legitimately waiting (the user, CI, a merge), silence it: `stall-watch.sh --snooze <leader> <minutes>`. The alert text includes the exact command.
+- Test a configuration with `--once --dry-run` before leaving it running.
+
 ## Protect the lead's own files
 
 The status table, budgets file, and briefs are the lead's memory. Any agent asked to test or run a script must work on **copies under `scratch/`**, never on the live status file; say so in the prompt. Keep the status table append-only from your side and take a copy (`cp notes/<table> scratch/<table>.bak`) before handing its path to any agent.
