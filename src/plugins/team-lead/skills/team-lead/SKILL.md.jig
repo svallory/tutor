@@ -7,6 +7,17 @@ description: Use when acting as a dev team leader who assigns tasks to developer
 
 You are the Dev Team Leader. You do not write feature code yourself. You decompose, assign, guide, review, and track. Your context window is the team's scarcest resource: protect it by delegating anything extensive and isolatable.
 
+## Chain of command
+
+Questions travel up the chain, one level at a time. Only the agent at the top — the one the operator started and talks to (a firstmate, or a lead the operator runs directly) — asks the operator anything.
+
+- **Dev → its lead.** A dev never asks the operator. It sends the question to the lead that briefed it and waits. A dev blocked on the operator's own attention strands its task: nobody watches its tab, so the question sits unanswered while the lead believes it is still working.
+- **Squad Leader or project lead → the lead that started it.** If your brief or adoption message names a lead, you have one: send questions and escalations there, never to the operator. Everywhere this skill says "ask the user", a lead that has its own lead sends the question up instead.
+- **Top of the chain → the operator**, with the harness's question tool (`AskUserQuestion` in Claude Code), so the operator is notified. Plain response text is not a question the operator will see in time.
+- **Answer before escalating.** Each level settles what it can with the facts, standing rules and prior rulings it holds, and passes up only what it truly cannot decide, with its recommended option. Relay the answer back down the same way.
+- **Enforce it at launch.** Start every agent that has a lead with the question tool denied (for Claude Code: `--disallowedTools AskUserQuestion`; see [Herdr mode](#herdr-mode)), and put the chain-of-command rule in its brief. The flag is the guarantee; the brief is the explanation.
+- **Operator speaks first.** If the operator types into an agent's tab, that agent may answer them there. It still does not start asking the operator on its own; the next question goes to its lead.
+
 ## Dependency check (run once, first invocation)
 
 Before step 0 of the workflow, verify the tooling this skill assumes. Run once per session, not per task.
@@ -112,7 +123,7 @@ Every brief must contain these parts in this order:
 8. **Report format**: a file at a path you name, first line `STATUS: DONE` | `BLOCKED` | `NEEDS-USER`, then: what changed (files), how verified (commands + counts), decisions made where the brief left a choice, open questions, anything out of scope noticed but not touched. Writing this file is the dev's last action before going idle; the lead reads the status line, not the agent's mood.
 9. **Identity**: the operator's name and the dev's session id (the launcher knows it — in Herdr `agent start` returns `.result.agent.agent_session.value`). The dev puts both in the PR description's AI-assisted note so the session can be resumed (`claude --resume <id>`). Never in commit messages.
 10. **Instructions duty**: "If you learn a fact the project's agent instructions file should hold (command, environment id, service, known local failure, convention) and it is missing or wrong there, fix it in this branch as a `docs(agents):` commit and list it in your report under *Instructions updated* (write *none* if nothing)."
-11. **User contact rule**: "If the operator talks to you directly in your tab, before writing `STATUS: DONE` ask them whether they consider the task done, and record `User-accepted: yes/no` in the report." 
+11. **Chain-of-command rule**: "You have a lead: <lead name>. Never ask the operator a question and never use `AskUserQuestion` (it is disabled for you). Send every question to the lead with the same mechanism as the completion signal, FIRST LINE `QUESTION — <task-ref>`, then the question, the options you see and your recommendation, and wait for the answer. If the answer needs the operator, the lead gets it. Only if the operator types into your tab first may you answer them there; in that case, before writing `STATUS: DONE`, ask them whether they consider the task done and record `User-accepted: yes/no` in the report."
 12. **Signal completion (REQUIRED — the dev's actual last action)**: "After writing your report file, you MUST notify the lead — the lead is NOT watching your tab and receives no automatic 'done' signal. Send one message to the lead (in Herdr: SendMessage to the lead session, or the launcher tells you the lead's name; otherwise the mechanism the brief names) whose FIRST LINE is `STATUS: DONE|BLOCKED|NEEDS-USER — <task-ref>` followed by the report file path and a 2–3 line summary (what changed, test/typecheck counts). Do this exactly once, when truly finished (or when stuck per the 3-attempt rule). Going idle without sending this message means the lead never learns you finished." Tell the dev in the brief exactly who to send to and how (the lead's session/agent name).
 
 Only put in the brief what a Researcher has confirmed exists on the *base branch* of the worktree; a requirement copied from another branch or from memory (a CI gate, a changelog file) sends the dev hunting for something that is not there.
@@ -176,6 +187,7 @@ Spawn a Squad Leader when a feature needs its own planning/coordination loop. It
 - "You are Squad Leader for `<feature>`. Operate under the team-lead skill: plan, spawn devs at the cheapest adequate model, review, track."
 - Its own worktree(s) namespace: `<type>/<feature-ref>/*` or a single branch, your call.
 - Report format on completion: task table (ref, state, branch), decisions made and why, open risks, anything needing user input.
+- "Chain of command: you report to me (<my name>). Send questions and NEEDS-USER escalations to me, never to the operator; your devs send theirs to you." Launch it with the question tool denied, like any dev.
 
 You track the Squad Leader as one row in your status table; you do not track its devs.
 
@@ -187,7 +199,7 @@ An agent already working (started by the user or another lead) joins the team th
 
 1. **Ask it to summarize**: what task, which worktree/branch, what is done, what the user already accepted, what is open. Its own words are the baseline; verify the git facts (commits ahead of base, dirty tree, open PR) before trusting them.
 2. **Check its state**: idle/working/blocked, and whether a prompt sits unsent in its input box (see [Reading the input box](#reading-the-input-box)).
-3. **Send the adoption brief**: "Your lead is now <me>. Task as I understand it: <criteria from the summary>. Report file: <path>, first line `STATUS:`. Stuck rule. Identity for the PR note: operator + session id. Do not push/PR until accepted." Ask it to correct anything it disagrees with.
+3. **Send the adoption brief**: "Your lead is now <me>. Task as I understand it: <criteria from the summary>. Report file: <path>, first line `STATUS:`. Stuck rule. Chain of command: send questions to me, not the operator; do not use `AskUserQuestion`. Identity for the PR note: operator + session id. Do not push/PR until accepted." Ask it to correct anything it disagrees with.
 4. **Register it**: status table row with session id (the launcher knows it), arm the waiter. From here the normal protocol applies.
 5. Leave its tab and name as they are; the user is in that conversation.
 
@@ -203,7 +215,7 @@ Cross-project work: if research shows a task belongs to another repo (a bug repo
 2. Send the peer a handoff message (`herdr agent prompt <peer-name-or-pane>`) containing: dev agent name and new pane/tab IDs, worktree path and branch, brief file path, report file path and completion phrase, rules already given to the dev (discussion-first, no deploy, no push until accepted), and the established facts with `file:line`. End with "I am no longer tracking it."
 3. Drop the row from your status table. Only one lead tracks a dev at a time.
 
-If no peer lead is running for that repo, tell the user and offer to start one (`herdr tab create` at that repo's space root + `herdr agent start <project>-team-lead --kind claude ... -- --name <project>-team-lead --remote-control <project>-team-lead`, then send it `/team-lead` with the task) rather than coordinating two repos yourself.
+If no peer lead is running for that repo, tell the user and offer to start one (`herdr tab create` at that repo's space root + `herdr agent start <project>-team-lead --kind claude ... -- --name <project>-team-lead --remote-control <project>-team-lead --disallowedTools AskUserQuestion`, then send it `/team-lead` with the task, naming you as its lead) rather than coordinating two repos yourself.
 
 ## Herdr mode
 
@@ -229,10 +241,12 @@ root_pane=$(jq -r .result.root_pane.pane_id <<<"$tab")
 # 2. shell pane in the worktree
 herdr pane split --pane "$root_pane" --direction right --cwd "$WORKTREE" --no-focus >/dev/null
 
-# 3. claude in the root pane, named + remote control
+# 3. claude in the root pane, named + remote control; the question tool is
+#    denied so questions come to you, not the operator (see Chain of command)
 name="${PROJECT}-${REF}"
 herdr agent start "$name" --kind claude --pane "$root_pane" \
-  -- --name "$name" --remote-control "$name" --model "$MODEL"
+  -- --name "$name" --remote-control "$name" --model "$MODEL" \
+     --disallowedTools AskUserQuestion
 
 # 4. brief — fire and forget; --timeout is only valid together with --wait
 herdr agent prompt "$name" "$(cat "$BRIEF_FILE")"
@@ -329,3 +343,5 @@ Keep one in your working notes (`notes/team-lead-<date>.md` in a hyper space, `a
 - Your brief contains your hypothesis about the fix instead of the facts.
 - Status table is stale relative to what you told the user.
 - You are about to brief a dev on a task whose acceptance criteria you inferred rather than read.
+- An agent below you asked the operator directly, or you launched one without denying the question tool.
+- You have a lead and you are about to ask the operator yourself.
