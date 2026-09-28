@@ -18,6 +18,7 @@ A marketplace of plugins and skills that tutor AI agents.
 | **decompose** | Structured problem decomposition for hard problems. Triggers when the answer isn't immediately known: define the gap, enumerate variables, decompose into testable hypotheses, test one variable at a time. |
 | **team-lead** | Dev team leader: decomposes a batch of tasks, assigns them to developer agents at the cheapest adequate model, reviews their work, and tracks progress. |
 | **demo-video** | Narrated, subtitled MP4 demos of web-app features: Playwright recording with animated cursor, ffmpeg assembly paced by TTS narration, title cards and outro. |
+| **sync-skills** | One shared `~/.agents/skills` folder for Claude Code, Pi, Kimi, Codex and agy with no duplicate skill names: real per-config Claude skills folders with per-skill links, claude.ai-synced skills linked once. |
 | **okf** | Create, validate, and enrich Open Knowledge Format (OKF) bundles — knowledge as markdown files with YAML frontmatter, incl. v0.2 provenance, trust, and Attested Computations. |
 | **hyper** | Hyper Coding workflow support: project spaces (a bare repo wrapping all of a project's worktrees), per-edit integration with a project's own linters/typecheckers, spec-driven planning, and template-driven generation. Sourced externally from [hyper-coding](https://github.com/svallory/hyper-coding). |
 
@@ -62,6 +63,14 @@ Ask for a "demo video" or "feature walkthrough video" of a web-app feature. The 
 Requires ffmpeg, Playwright, and either `GEMINI_API_KEY` (gemini-tts) or the offline `qwen3-tts-mlx` engine.
 
 See [demo-video README](src/plugins/demo-video/README.md) for config schema, commands, and troubleshooting.
+
+### Sync Skills
+
+```
+/plugin install sync-skills@tutor
+```
+
+Ask to "sync skills" when agents report skill-name collisions or Claude doesn't see a skill you added to `~/.agents/skills`. See [sync-skills README](src/plugins/sync-skills/README.md).
 
 ### OKF
 

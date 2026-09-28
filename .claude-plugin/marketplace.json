@@ -25,6 +25,11 @@
       "source": "./dist/claude/plugins/okf"
     },
     {
+      "name": "sync-skills",
+      "description": "Keep one shared ~/.agents/skills folder for every agent without duplicate skill names: real per-config Claude skills folders with per-skill links, and claude.ai-synced skills linked once for other agents.",
+      "source": "./dist/claude/plugins/sync-skills"
+    },
+    {
       "name": "team-lead",
       "description": "Act as a dev team leader: decompose tasks, spawn developer agents at the cheapest adequate model, review their work, and track progress across a batch (sprint, board, epic, list of tickets).",
       "source": "./dist/claude/plugins/team-lead"

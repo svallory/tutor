@@ -1,0 +1,17 @@
+{
+  "name": "sync-skills",
+  "description": "Keep one shared ~/.agents/skills folder for every agent without duplicate skill names: real per-config Claude skills folders with per-skill links, and claude.ai-synced skills linked once for other agents.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Saulo Vallory"
+  },
+  "keywords": [
+    "skills",
+    "agents",
+    "claude",
+    "pi",
+    "kimi",
+    "codex",
+    "symlinks"
+  ]
+}

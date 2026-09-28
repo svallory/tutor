@@ -36,7 +36,7 @@ plugins:
     platforms: [claude, kimi]
 
 skills:
-  public: [okf-open-knowledge-format, team-lead, demo-video, decompose]
+  public: [okf-open-knowledge-format, team-lead, demo-video, decompose, sync-skills]
   groups:
     - title: Knowledge
       description: Structure organizational knowledge as agent-readable markdown bundles (Open Knowledge Format).
@@ -47,6 +47,9 @@ skills:
     - title: Demos & Video
       description: Record narrated, subtitled MP4 walkthroughs of web-app features.
       skills: [demo-video]
+    - title: Agent Setup
+      description: Keep one shared skills folder for every agent, without duplicates.
+      skills: [sync-skills]
     - title: Problem Solving
       description: Break hard problems into smaller, testable knowns.
       skills: [decompose]
