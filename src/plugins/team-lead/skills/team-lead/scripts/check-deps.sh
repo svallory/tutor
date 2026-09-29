@@ -36,7 +36,7 @@ report() { echo "MISSING $1 — $2"; missing=1; }
 # Some harness CLIs are only on the interactive shell's PATH.
 has_command() {
   command -v "$1" >/dev/null 2>&1 && return 0
-  [ -n "$("${SHELL:-zsh}" -ic "command -v $1" 2>/dev/null | tail -1)" ]
+  [ -n "$("${SHELL:-zsh}" -ic 'command -v -- "$1"' _ "$1" 2>/dev/null | tail -1)" ]
 }
 
 has_command git   || report git   "install git"
@@ -73,23 +73,30 @@ if [ -n "$config" ] && [ -f "$config" ]; then
         sub(/[[:space:]"\047].*$/, "", first)
         if (first != "env" && first !~ /^[A-Za-z_][A-Za-z_0-9]*=/) binary = first
       }
-      print name "|" binary "|" messaging
+      sep = sprintf("%c", 31)
+      print name sep binary sep messaging sep bin_set
     }
     /^harnesses:/ { in_section = 1; next }
     /^[^ #]/      { in_section = 0 }
     !in_section   { next }
     /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
-      emit(); name = $1; sub(/:$/, "", name); launch = ""; bin = ""; messaging = "-"; next
+      emit(); name = $1; sub(/:$/, "", name); launch = ""; bin = ""; bin_set = 0; messaging = "-"; next
     }
     /^    launch:/    { launch = scalar($0) }
-    /^    bin:/       { bin = scalar($0); gsub(/^["\047]|["\047]$/, "", bin) }
+    /^    bin:/       { bin = scalar($0); gsub(/^["\047]|["\047]$/, "", bin); bin_set = 1 }
     /^    messaging:/ { messaging = scalar($0) }
     END { emit() }
   ' "$config" > "${TMPDIR:-/tmp}/check-deps.$$"
   # Read from a file, not a pipe, so `report` runs in this shell and sets `missing`.
-  while IFS='|' read -r harness binary messaging; do
-    if [ -z "$binary" ] || [ "$binary" = env ] || [[ "$binary" == *=* ]]; then
+  while IFS=$'\037' read -r harness binary messaging bin_set; do
+    # Accept only a single literal executable token or path. Even the inferred
+    # launch token must not contain shell syntax (or delimiters in this parser).
+    if [ "$bin_set" = 1 ] && { [[ ! "$binary" =~ ^[A-Za-z0-9_./-]+$ ]] || [ "$binary" = env ]; }; then
+      report "invalid bin: for $harness" "use one executable name or path without spaces or shell metacharacters"
+    elif [ -z "$binary" ] || [ "$binary" = env ] || [[ "$binary" == *=* ]]; then
       report "cannot determine executable for $harness; add bin:" "set bin: to the harness CLI in harnesses.yaml"
+    elif [[ ! "$binary" =~ ^[A-Za-z0-9_./-]+$ ]]; then
+      report "invalid bin: for $harness" "use one executable name or path without spaces or shell metacharacters"
     else
       has_command "$binary" || report "$harness ($binary)" "harness in the config is not installed; ask the user before dropping it"
     fi
