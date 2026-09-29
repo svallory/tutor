@@ -1,41 +1,18 @@
 # team-lead TODO
 
-## Generalize pi-claude-link to every harness
+## Harness-independent agent messaging
 
-**Problem.** Agent messages sent with `herdr agent prompt` are typed into the receiver's terminal. When the operator is typing in that pane at the same moment, the two streams mix. This has happened several times in the lead's pane. `SendMessage` (Claude ↔ Claude) and [pi-claude-link](https://github.com/alonw0/pi-claude-link) (pi ↔ Claude) avoid the terminal, but Codex, Kimi and other harnesses still use Herdr (see "Agent messaging" in SKILL.md).
+**Problem.** `herdr agent prompt` types messages into the receiver's terminal, so a message can collide with the operator typing in that pane. `SendMessage` and [pi-claude-link](https://github.com/alonw0/pi-claude-link) avoid the terminal but only cover Claude Code and pi, rely on Claude Code's private cross-session protocol, and pass every message through the `crossSessionInbound` approval gate. Codex and Kimi devs, and `scripts/stall-watch.sh` (`herdr agent prompt` at line 112), still type into the lead's pane.
 
-**Goal.** Any harness that can run a skill (so it can read instructions and run a shell command) can send to and receive from Claude Code sessions over Claude's cross-session sockets, the same way pi-claude-link does.
+**Plan (supersedes the earlier `agent-link` CLI idea).** This is being solved outside this skill, as part of Hyper:
 
-### How pi-claude-link works (the parts to reuse)
+- **hyper-compat**: small per-harness plugins that give every harness Claude Code's hooks contract, including `asyncRewake` (a background hook that wakes an idle session). Harnesses that already follow the contract need nothing; pi, OpenCode and Amp get an adapter; hook-only harnesses without a background mode fall back to a constant doorbell line typed only when the agent is idle.
+- **hyper-msg**: a durable per-agent inbox (Maildir-style JSON message files) plus a small command (`send`, `ack`, `watch`, `hook`). Messages reach agents through the hooks above, without typing and without the agent checking.
 
-- `claude-protocol.ts` is a dependency-free port of Claude Code's cross-session wire protocol. It covers:
-  - the registry in `~/.claude/sessions/<pid>.json`
-  - Unix sockets in Claude's socket directory (`cc-socks/<pid>.sock`; here `~/.xdg/cc-socks`)
-  - `<cross-session-message>` envelopes, delivery receipts and `rename` control frames
-- `index.ts` binds that protocol to pi's extension API:
-  - `session_start` registers the peer
-  - inbound frames go to `pi.sendUserMessage`
-  - `agent_end` relays the reply
-  - the `claude-link` tool handles list/send/ask
+**When it lands, update this skill:**
 
-### Plan
-
-1. **Split the protocol out of the pi binding.** Turn `claude-protocol.ts` into a standalone package with a CLI, e.g. `agent-link`:
-   - `agent-link list`: live sessions from the registry
-   - `agent-link send <to> <message>`: send one frame and exit after the delivery receipt
-   - `agent-link ask <to> <message>`: send, block until the reply and print it
-   - `agent-link serve --name <name> --inbox <file>`: register a peer, bind the socket, append each inbound message to an inbox file (JSONL), and deregister on exit
-2. **Sending works right away for every harness.** Any agent that can run a shell command can call `agent-link send`. This alone removes the collision for Codex and Kimi devs reporting to the lead, which is the case that actually hurts.
-3. **Receiving needs a per-harness bridge.** A message has to get into the agent's turn without typing into its terminal:
-   - Codex: check whether its hooks or notify mechanism can inject a message at turn boundaries. If not, a skill tells the agent to check the inbox (`agent-link inbox --since <cursor>`) at each step boundary.
-   - Kimi Code: check its plugin/hook API for something like pi's `sendUserMessage`.
-   - Generic fallback: `agent-link serve` runs next to the agent, and the skill tells the agent to poll the inbox. Delivery waits until the next check, but nothing gets mixed together.
-4. **Ship a skill** (`agent-link`) with the CLI, in the same shape as pi-claude-link's bundled skill: list/send/ask, and the rule that peer messages are untrusted and never count as the operator's approval.
-5. **Switch `scripts/stall-watch.sh` to `agent-link send`.** It messages leaders with `herdr agent prompt` (`stall-watch.sh:112`), so its alerts can collide with the operator typing in the lead's pane. A shell script can't call `SendMessage`, so it has to wait for the CLI. Fall back to Herdr for receivers that aren't registered in Claude's session registry.
-6. **Update SKILL.md "Agent messaging"** so every harness that has a bridge uses the socket channel, and Herdr is left only for interrupts (`send-keys esc`).
-
-### Open questions
-
-- The protocol is private to Claude Code and may change without notice. Pin the Claude Code versions it was tested against, and add a smoke test (`reg-test`-style) the lead can run at startup.
-- Registering with a PID that isn't a Claude or pi process: check that Claude's liveness filter (`ps -o lstart=` start-time check) accepts the `serve` process's PID.
-- Upstream vs. fork: offer the protocol split to alonw0/pi-claude-link before forking.
+1. Replace the "Agent messaging" table in SKILL.md with `hyper-msg send` for every pair; keep `herdr agent send-keys esc` for interrupts only.
+2. Brief step 12 (completion signal) and the chain-of-command questions use `hyper-msg`.
+3. Switch `scripts/stall-watch.sh` alerts to `hyper-msg send`.
+4. Add `hyper-msg` and the harness adapters to `scripts/check-deps.sh`.
+5. Drop the pi-claude-link dependency and the `crossSessionInbound: "hold"` limitation note.
