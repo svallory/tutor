@@ -19,7 +19,7 @@ npx skills add svallory/tutor --skill team-lead
 
 ## Requirements
 
-Checked once per session on first invocation. If something is missing, the skill **stops before spawning any dev** and tells you the exact install command rather than silently working around it.
+Checked once per session by `check-deps.sh` (skills are checked against the agent's skills list). If something is missing, the skill **stops before spawning any dev** and tells you how to fix it rather than silently working around it.
 
 | Dependency | Required for |
 |---|---|
@@ -28,9 +28,11 @@ Checked once per session on first invocation. If something is missing, the skill
 | `jq` | parsing `wt` and `gh` JSON output |
 | `wt` ([worktrunk](https://github.com/max-sixty/worktrunk)) + the `worktrunk` skill | one git worktree per task |
 | `code-review` skill | independent post-acceptance PR review |
-| `herdr` CLI + skill | only when `HERDR_ENV=1` — multi-pane dev tabs and automated monitoring |
+| `herdr` CLI + skill | only when `HERDR_ENV=1` — one tab per dev and automated monitoring |
 | `but` (GitButler) | only for projects that use it |
 | `flock` | serializing heavy or order-sensitive work (macOS: `brew install flock`) |
+| the CLI of each configured harness | launching devs on it |
+| [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | only when pi is a configured harness — messaging between pi and Claude Code (install: `pi install git:github.com/alonw0/pi-claude-link`) |
 
 A missing `herdr` while `HERDR_ENV=1` is reported as a contradiction, not quietly downgraded.
 
@@ -45,6 +47,12 @@ Hand it a batch of work:
 > assign these tickets to devs
 
 Triggers on **"team lead"**, **"dev leader"**, **"squad leader"**, **"start dev agents on these tasks"**, **"assign tasks to devs"**.
+
+## Harnesses
+
+On first use the lead detects which coding-agent CLIs are installed (Claude Code, Codex, Kimi, pi, Gemini, and others), asks which ones you want on the team, and saves your choice plus a role → `harness:model` routing to `harnesses.yaml` in the plugin's data directory. The file is plain YAML; edit it by hand or ask the lead to "reconfigure harnesses".
+
+For multi-provider harnesses the lead lists what can actually run rather than guessing: `pi --list-models` shows only providers with credentials configured.
 
 ## Roles and models
 
@@ -89,7 +97,7 @@ wt switch --create "$BRANCH" --base "$BASE" --no-cd -y
 WORKTREE=$(wt list --format json | jq -r --arg b "$BRANCH" '.items[] | select(.branch==$b) | .path')
 ```
 
-**5–7. Launch, brief, and monitor.** Devs run in the background. The lead acts on completion notifications rather than polling.
+**5–7. Launch, brief, and monitor.** Devs run in the background — inside [Herdr](https://github.com/herdrdev/herdr), each in its own one-pane tab you can watch and take over. The lead acts on completion messages and monitor alerts rather than polling.
 
 **8. Review and ship.** On acceptance the dev pushes and opens a PR, and a **fresh** agent — never the author, so it isn't anchored on the dev's reasoning — runs `/code-review` on the PR number.
 
@@ -117,9 +125,24 @@ Every dev gets a 12-part brief. The parts that matter most in practice:
 
 Two principles shape every brief: only include facts a Researcher confirmed exist on the base branch, and *give the dev the facts, not your reasoning about them* — a dev that receives the lead's analysis will follow the analysis instead of reading the code.
 
+## Agent messaging
+
+Agents message each other over the best channel the pair supports:
+
+| Sender → receiver | Channel |
+|---|---|
+| Claude Code ↔ Claude Code | `SendMessage` / `/list-agents` |
+| Claude Code → pi | `SendMessage` (pi runs `pi-claude-link`, launched with `--name`) |
+| pi → Claude Code | pi's `claude-link` tool |
+| any other pair | `herdr agent prompt` |
+
+The order matters because `herdr agent prompt` types into the receiver's terminal: if you are typing in that pane at the same moment, the two inputs get mixed. `SendMessage` and `claude-link` use Claude Code's cross-session sockets and never touch the terminal.
+
+Known gaps: Codex and Kimi devs still report to the lead over Herdr, and so does the stall watchdog. A plan to route every harness over the socket channel lives in the skill's `TODO.md`.
+
 ## When a dev says it is finished
 
-A waiter firing, an idle status, or the word "done" is a **claim**, not a fact. Devs also finish silently, so "no message" does not mean "still working".
+A `DONE` alert, an idle status, or the word "done" is a **claim**, not a fact. Devs also finish silently, so "no message" does not mean "still working".
 
 The lead verifies state rather than the story:
 
@@ -152,8 +175,7 @@ Never let a dev exceed 3 attempts, or the lead exceed 3 rounds of resend on one 
 
 ## Operational limits
 
-- **Load budget** — at most **2 heavy jobs** at a time across the whole team (a dev running tests, a verifier, a code review, a Playwright run). Verification runs serialized.
-- **Shared local resources** — only the lead sees all in-flight devs, so the lead owns how many app stacks run. Often 1–2 on a laptop; beyond that, a PR to the preview environment replaces local runs.
+- **Machine load** — at most **2 heavy jobs** at a time across the whole team (a dev running tests, a verifier, a code review, a Playwright run), one verify run at a time. Only the lead sees all in-flight devs, so it owns how many app stacks run: often 1–2 on a laptop; beyond that, a PR that triggers the project's preview deployment replaces local runs.
 - **Serialize with `flock`** when a task needs a multi-GB typecheck, a full production build, a browser e2e matrix, or ordered PR merges:
 
   ```bash
@@ -168,7 +190,15 @@ A markdown status table lives in your working notes (`notes/team-lead-<date>.md`
 
 ## Bundled scripts
 
-Both live in the plugin and are invoked through the plugin root variable, never a hardcoded path.
+All live in the plugin and are invoked through the plugin root variable, never a hardcoded path.
+
+### `check-deps.sh`
+
+```
+check-deps.sh [--config <harnesses.yaml>]
+```
+
+Checks the base CLIs, `herdr` when `HERDR_ENV=1`, every configured harness's CLI, and `pi-claude-link` when pi is configured. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
 
 ### `rebase-worktrees.sh`
 
@@ -193,6 +223,14 @@ team-status.sh --table <path> --prefix <project>- [--budgets <path>]
 It parses task refs from the first column of your status table and emits lines only for `OVER-BUDGET`, `BLOCKED`, `DONE`, `MISSING`, `LOAD`, and `HEAVY`. With `--state`, each alert fires once and emits `CLEARED` when it stops.
 
 The lead wraps this in a single monitor loop running about every 3 minutes, armed the moment the first dev launches — it's the backstop that catches a dev finishing without messaging.
+
+### `stall-watch.sh`
+
+A token-free watchdog the lead starts once per session as a background shell. When nobody on a team has been working for `--quiet-min` minutes, it prompts the team's leader with each member's status; if the team stays quiet, it escalates once. `--snooze <leader> <minutes>` silences it while a team is legitimately waiting.
+
+```
+stall-watch.sh --team <leader>='<project>-<glob>' [--team ...] --escalate <agent> --quiet-min 15
+```
 
 ## Red flags
 
