@@ -13,7 +13,7 @@ The `team-lead` skill turns the agent into an orchestrator that does not write f
 
 ## Requirements
 
-Checked once per session on first invocation; the skill stops and tells you what's missing rather than working around it silently.
+Checked once per session by `scripts/check-deps.sh`; the skill stops and tells you what's missing rather than working around it silently.
 
 | Dependency | Required for |
 |---|---|
@@ -21,6 +21,8 @@ Checked once per session on first invocation; the skill stops and tells you what
 | `wt` (worktrunk) + `worktrunk` skill | one worktree per task |
 | `code-review` skill | independent post-acceptance PR review |
 | `herdr` CLI + skill | only when `HERDR_ENV=1` |
+| each configured harness's CLI | launching devs on it |
+| [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | only when pi is a configured harness |
 | `but` (GitButler) | only for projects that use it |
 | `flock` | serializing heavy or order-sensitive work |
 

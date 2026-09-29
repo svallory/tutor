@@ -15,37 +15,20 @@ Questions travel up the chain, one level at a time. Only the agent at the top �
 - **Squad Leader or project lead → the lead that started it.** If your brief or adoption message names a lead, you have one: send questions and escalations there, never to the operator. Everywhere this skill says "ask the user", a lead that has its own lead sends the question up instead.
 - **Top of the chain → the operator**, with the harness's question tool (`AskUserQuestion` in Claude Code), so the operator is notified. Plain response text is not a question the operator will see in time.
 - **Answer before escalating.** Each level settles what it can with the facts, standing rules and prior rulings it holds, and passes up only what it truly cannot decide, with its recommended option. Relay the answer back down the same way.
-- **Enforce it at launch.** Start every agent that has a lead with the question tool denied (for Claude Code: `--disallowedTools AskUserQuestion`; see [Herdr mode](#herdr-mode)), and put the chain-of-command rule in its brief. The flag is the guarantee; the brief is the explanation.
+- **Enforce it at launch.** Start every agent that has a lead with the question tool denied (for Claude Code: `--disallowedTools AskUserQuestion`; for pi: `--exclude-tools ask_user`; see [Herdr mode](#herdr-mode)), and put the chain-of-command rule in its brief. The flag is the guarantee; the brief is the explanation.
 - **Operator speaks first.** If the operator types into an agent's tab, that agent may answer them there. It still does not start asking the operator on its own; the next question goes to its lead.
 
 ## Dependency check (run once, first invocation)
 
-Before step 0 of the workflow, verify the tooling this skill assumes. Run once per session, not per task.
+Before step 0 of the workflow, once per session, after the [Harness config](#harness-config) is loaded (or written by [Harness setup](#harness-setup)):
 
-| Dependency | Kind | Required for | Check |
-|---|---|---|---|
-| `git` | CLI | everything | `command -v git` |
-| `gh` | CLI | PR creation, PR listing, hotfix rebase | `command -v gh && gh auth status` |
-| `jq` | CLI | parsing `wt`/`gh` JSON output | `command -v jq` |
-| `wt` (worktrunk) | CLI + skill | provisioning one worktree per task | `command -v wt` |
-| `worktrunk` skill | skill | `wt switch --create`, `wt list`, `wt remove` syntax/flags | present in the skills list surfaced to you |
-| `herdr` | CLI + skill | Herdr mode (multi-pane dev tabs, `agent start/prompt/wait`) | only when `HERDR_ENV=1`; `command -v herdr` |
-| `code-review` skill | skill | independent post-acceptance PR review (step 8 of workflow) | present in the skills list surfaced to you |
-| `but` (GitButler) | CLI | pushing/opening PRs when a project uses GitButler | only if the project's own skill/CLAUDE.md says so |
-| `flock` | CLI | serializing heavy or order-sensitive work across devs (see [Serialize with flock](#serialize-with-flock-when-necessary)) | `command -v flock` (macOS: `brew install flock`) |
+```bash
+{{ platform.pluginRootVar }}/skills/team-lead/scripts/check-deps.sh --config "<harnesses.yaml path>"
+```
 
-Procedure:
+It checks `git`, `gh` (and its login), `jq`, `wt`, `flock`, `herdr` when `HERDR_ENV=1`, the CLI of every harness in the config, and `pi-claude-link` when the config includes pi without `messaging: herdr`. It prints nothing and exits 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each. Skills can't be checked from a shell: confirm `worktrunk`, `code-review` and (inside Herdr) `herdr` are in the skills list surfaced to you this session, not from memory.
 
-1. Check each CLI with `command -v <tool>`. Do this yourself with Bash — it's a handful of cheap local checks, not the "never look yourself" research rule (that rule is about reading the codebase, not verifying your own toolchain).
-2. Check each skill by looking at the skills list already surfaced to you this session (the `<system-reminder>` skills listing, or ask the harness). Do not guess from memory that a skill exists; if it isn't in the current listing, treat it as missing.
-3. `HERDR_ENV` is conditional: only require `herdr` (CLI) and the `herdr` skill when `test "${HERDR_ENV:-}" = 1`. Outside Herdr, skip both — the Agent tool is the launcher instead (see [Herdr mode](#herdr-mode)).
-4. If everything required for the current mode (Herdr or not) is present, proceed silently — do not report a clean bill of health to the user, just continue to step 0.
-5. If something required is missing, **stop before spawning any dev** and tell the user exactly what's missing and how to fix it:
-   - Missing CLI (`gh`, `jq`, `wt`, `git`): give the install command for the user's platform (e.g. `brew install gh jq` on macOS; `wt` via `worktrunk`'s own install instructions — do not guess a package name, point at https://github.com/max-sixty/worktrunk).
-   - `gh` present but not authenticated: `gh auth login`.
-   - Missing `worktrunk` or `code-review` skill: tell the user the skill is not installed/available and to install the plugin that provides it (ghostwriter-style: `/plugin marketplace add <repo>` then `/plugin install <plugin>@<marketplace>`, or ask them which marketplace carries it if unknown — do not fabricate a repo name).
-   - Missing `herdr` while `HERDR_ENV=1` is set: flag the contradiction (env var claims Herdr but the binary/skill isn't there) rather than silently falling back to non-Herdr mode, since that changes the workflow the user expects.
-6. Never substitute a missing dependency with a manual workaround that skips its purpose (e.g. hand-rolling `git worktree add` instead of `wt` because `wt` is missing) without telling the user you're doing so and why — worktrunk's `wt` carries hooks and config that a bare `git worktree add` skips silently.
+If anything is missing, **stop before spawning any dev** and tell the user what and how to fix it. For a missing harness, ask before dropping it from the config; for a missing skill, tell the user to install the plugin that provides it (ask which marketplace carries it rather than guessing). `HERDR_ENV=1` without `herdr` is a contradiction to report, not a reason to silently leave Herdr mode. Never replace a missing tool with a workaround that skips its purpose (e.g. `git worktree add` instead of `wt`, which skips worktrunk's hooks) without telling the user.
 
 ## Harness config
 
@@ -59,7 +42,7 @@ If the block above says `HARNESSES: NOT CONFIGURED`, run [Harness setup](#harnes
 Before step 0, read your saved harness choices: `cat "{{ platform.dataDir || (platform.pluginRootVar + '/skills/team-lead') }}/harnesses.yaml"`. If the file does not exist, run [Harness setup](#harness-setup) first. Otherwise it is the source of truth for which harnesses and models you may launch.
 @end
 
-Re-run the setup when the user asks ("reconfigure harnesses", "add codex to the team"), or when a configured harness is gone (`command -v` fails) — tell the user which one and ask before dropping it.
+Re-run the setup when the user asks ("reconfigure harnesses", "add codex to the team"), or when the dependency check reports a configured harness missing — tell the user which one and ask before dropping it. If `pi-claude-link` is reported missing and the user doesn't want it back, set `messaging: herdr` for pi.
 
 ## Roles and models
 
@@ -102,7 +85,7 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
    done
    ```
 2. **Ask which to use.** One multi-select question per group of at most four detected harnesses (the question tool caps options at four; use up to four questions). Label each option with the harness and one line on what it is good for, from [Known harnesses and models](#known-harnesses-and-models). Tell the user they can type any harness that was not detected in "Other" (a wrapper script, a remote runner, a CLI installed somewhere unusual) with its launch command.
-3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. Ask only what you cannot find out (for example which models their subscription includes).
+3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. For a multi-provider harness, list what it can actually run instead of guessing: `pi --list-models` shows only providers that have credentials configured, so a paid model whose provider isn't set up won't appear. Ask only what you cannot find out (for example which models their subscription includes). Then check what the chosen harnesses need for [Agent messaging](#agent-messaging): for pi, the `pi-claude-link` extension (`pi list | grep -q pi-claude-link`). If it is missing, ask the user before installing (`pi install git:github.com/alonw0/pi-claude-link`); if they decline, record `messaging: herdr` for pi in the config so pi devs use Herdr.
 4. **Propose routing.** Map roles to an ordered list of `harness:model` preferences, cheapest adequate first, following the "best for" column. Ask the user to confirm or edit it in one question with your proposal as the default.
 5. **Save** to `{{ platform.dataDir || (platform.pluginRootVar + '/skills/team-lead') }}/harnesses.yaml` (create the directory if needed) and show the user a 5-line summary. Format:
    ```yaml
@@ -118,6 +101,10 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
        launch: claude --model <model>
        herdr_kind: claude
        models: [haiku, sonnet, opus]
+     pi:
+       launch: pi --name <agent-name>
+       herdr_kind: pi
+       messaging: claude-link   # or herdr when pi-claude-link is not installed
    routing:                     # role -> ordered harness:model preferences
      researcher:   [agy:gemini-3.1-pro, claude:haiku]
      mechanic:     [kimi:kimi-for-coding-highspeed, claude:haiku]
@@ -142,7 +129,8 @@ Snapshot as of 2026-09. Model names change often: confirm with the harness's own
 | Kimi Code (`kimi`) | `kimi-for-coding-highspeed`, `kimi-for-coding`, `k3`, `k3-256k` | highspeed: mechanical edits and verify runs; `kimi-for-coding`/`k3`: S/M implementation; `k3-256k`: tasks that read a lot of source | use the managed alias `-m kimi-code/<model>`; a bare alias may fail auth. A wrapper that runs Claude Code against Kimi's endpoint (e.g. a `klaude` script) is a drop-in Claude-kind dev with the same skills and hooks |
 | Antigravity (`agy`) | Gemini 3.1 Pro | research with citations, docs lookups, really simple tasks | asks a folder-trust question on first run in a directory; answer it before sending the brief |
 | Gemini CLI (`gemini`) | Gemini models on the user's plan | same niche as `agy` when it is the one configured | |
-| opencode, aider, crush, pi, others | whatever provider the user configured | ask the user; route by the model behind it, not the CLI | record the exact launch command the user gives |
+| pi (`pi`) | any model from its configured providers; list them with `pi --list-models` | route by the model behind it, not the CLI | pick a model with `--model <provider>/<model>[:<thinking>]`; launch with `--name <agent-name>` so it shows under that name in Claude's `/list-agents`; needs the `pi-claude-link` extension to message Claude sessions |
+| opencode, aider, crush, others | whatever provider the user configured | ask the user; route by the model behind it, not the CLI | record the exact launch command the user gives |
 
 Routing rule of thumb: the cheapest harness that finishes in one or two attempts, with Claude kept for leads, reviews and hard problems when other harnesses are available. A reviewer should use a different model from the dev whose work it reviews.
 
@@ -194,8 +182,8 @@ Every brief must contain these parts in this order:
 8. **Report format**: a file at a path you name, first line `STATUS: DONE` | `BLOCKED` | `NEEDS-USER`, then: what changed (files), how verified (commands + counts), decisions made where the brief left a choice, open questions, anything out of scope noticed but not touched. Writing this file is the dev's last action before going idle; the lead reads the status line, not the agent's mood.
 9. **Identity**: the operator's name and the dev's session id (the launcher knows it — in Herdr `agent start` returns `.result.agent.agent_session.value`). The dev puts both in the PR description's AI-assisted note so the session can be resumed (`claude --resume <id>`). Never in commit messages.
 10. **Instructions duty**: "If you learn a fact the project's agent instructions file should hold (command, environment id, service, known local failure, convention) and it is missing or wrong there, fix it in this branch as a `docs(agents):` commit and list it in your report under *Instructions updated* (write *none* if nothing)."
-11. **Chain-of-command rule**: "You have a lead: <lead name>. Never ask the operator a question and never use `AskUserQuestion` (it is disabled for you). Send every question to the lead with the same mechanism as the completion signal, FIRST LINE `QUESTION — <task-ref>`, then the question, the options you see and your recommendation, and wait for the answer. If the answer needs the operator, the lead gets it. Only if the operator types into your tab first may you answer them there; in that case, before writing `STATUS: DONE`, ask them whether they consider the task done and record `User-accepted: yes/no` in the report."
-12. **Signal completion (REQUIRED — the dev's actual last action)**: "After writing your report file, you MUST notify the lead — the lead is NOT watching your tab and receives no automatic 'done' signal. Send one message to the lead (in Herdr: SendMessage to the lead session, or the launcher tells you the lead's name; otherwise the mechanism the brief names) whose FIRST LINE is `STATUS: DONE|BLOCKED|NEEDS-USER — <task-ref>` followed by the report file path and a 2–3 line summary (what changed, test/typecheck counts). Do this exactly once, when truly finished (or when stuck per the 3-attempt rule). Going idle without sending this message means the lead never learns you finished." Tell the dev in the brief exactly who to send to and how (the lead's session/agent name).
+11. **Chain-of-command rule**: "You have a lead: <lead name>. Never ask the operator a question and never use `AskUserQuestion` (and your harness's own ask-the-operator tool; they are disabled for you). Send every question to the lead with the same mechanism as the completion signal, FIRST LINE `QUESTION — <task-ref>`, then the question, the options you see and your recommendation, and wait for the answer. If the answer needs the operator, the lead gets it. Only if the operator types into your tab first may you answer them there; in that case, before writing `STATUS: DONE`, ask them whether they consider the task done and record `User-accepted: yes/no` in the report."
+12. **Signal completion (REQUIRED — the dev's actual last action)**: "After writing your report file, you MUST notify the lead — the lead is NOT watching your tab and receives no automatic 'done' signal. Send one message to the lead, using the channel the brief names (see [Agent messaging](#agent-messaging)) whose FIRST LINE is `STATUS: DONE|BLOCKED|NEEDS-USER — <task-ref>` followed by the report file path and a 2–3 line summary (what changed, test/typecheck counts). Do this exactly once, when truly finished (or when stuck per the 3-attempt rule). Going idle without sending this message means the lead never learns you finished." Tell the dev in the brief exactly who to send to and how: the lead's session name (the first line of `ListAgents` output) and the channel for the dev's harness — `SendMessage` for a Claude dev, the `claude-link` tool with `action: "send"` for a pi dev, `herdr agent prompt <lead-agent-name>` for any other harness.
 
 Only put in the brief what a Researcher has confirmed exists on the *base branch* of the worktree; a requirement copied from another branch or from memory (a CI gate, a changelog file) sends the dev hunting for something that is not there.
 
@@ -213,9 +201,9 @@ Never let a dev exceed 3 attempts. Never let yourself exceed 3 rounds of resend 
 
 ## When a dev says it is finished
 
-A waiter firing, an idle status, or the word "done" is a claim. Run this before believing it. Note a dev may also finish *silently* — it wrote its report and went idle without sending the completion message (brief step 12) — so do not assume "no message = still working"; a dev idle well past its time budget has likely finished or stalled, so check it rather than wait indefinitely.
+A `DONE` alert, an idle status, or the word "done" is a claim. Run this before believing it. Note a dev may also finish *silently* — it wrote its report and went idle without sending the completion message (brief step 12) — so do not assume "no message = still working"; a dev idle well past its time budget has likely finished or stalled, so check it rather than wait indefinitely.
 
-1. **Real completion?** Report file exists and its first line is `STATUS: DONE`; `agent get` still idle ~20s later; no unsent prompt in the input box (see [Reading the input box](#reading-the-input-box); a dim suggestion is not a prompt). `BLOCKED`/`NEEDS-USER` → go to [Handling "stuck"](#handling-stuck) or the user. Otherwise re-arm the waiter.
+1. **Real completion?** Report file exists and its first line is `STATUS: DONE`; `agent get` still idle ~20s later; no unsent prompt in the input box (see [Reading the input box](#reading-the-input-box); a dim suggestion is not a prompt). `BLOCKED`/`NEEDS-USER` → go to [Handling "stuck"](#handling-stuck) or the user. Otherwise the dev is still working; wait for the next message or alert.
 2. **Verify state, not the story** (git facts, cheap enough for you or a Haiku verifier): branch exists off the right base (`git merge-base --is-ancestor origin/<base> HEAD`), commits present (`git log --oneline origin/<base>..HEAD`), working tree clean, `git diff --stat origin/<base>...HEAD` touches only expected areas, and **the base branch was not pushed to** — compare `origin/<base>` against the SHA you noted when briefing.
 3. **Re-run the gates yourself — once.** Devs verify only what they touched; this is the single full run. A Haiku verifier runs the project's verify command (from the repo's agent instructions: the single `verify` script when the project has one) in the worktree and returns counts only. Compare with the report; a mismatch is a finding.
 4. **Criteria → evidence.** Each acceptance criterion maps to a file/test; open questions in the report are answered by you or the user before acceptance.
@@ -249,7 +237,7 @@ Before accepting a delivery, verify (run commands yourself or dispatch a Haiku r
 - [ ] Commit messages follow `type(scope): summary`.
 - [ ] Push + PR only after the checklist passes; then independent `/code-review` on the PR.
 
-Reject with concrete findings (`file:line`, what is wrong, what "fixed" looks like) — **all findings in one round**: every round costs the dev a re-test cycle (10–25 min on Angular/turbo repos), so batch the Haiku review, the fact-check, and your own reading before sending anything back. Accept with a one-line note in the status table.
+Reject with concrete findings (`file:line`, what is wrong, what "fixed" looks like) — **all findings in one round**: every round costs the dev a re-test cycle (often 10–25 min), so batch the Haiku review, the fact-check, and your own reading before sending anything back. Accept with a one-line note in the status table.
 
 ## Squad Leader handoff
 
@@ -271,36 +259,63 @@ An agent already working (started by the user or another lead) joins the team th
 1. **Ask it to summarize**: what task, which worktree/branch, what is done, what the user already accepted, what is open. Its own words are the baseline; verify the git facts (commits ahead of base, dirty tree, open PR) before trusting them.
 2. **Check its state**: idle/working/blocked, and whether a prompt sits unsent in its input box (see [Reading the input box](#reading-the-input-box)).
 3. **Send the adoption brief**: "Your lead is now <me>. Task as I understand it: <criteria from the summary>. Report file: <path>, first line `STATUS:`. Stuck rule. Chain of command: send questions to me, not the operator; do not use `AskUserQuestion`. Identity for the PR note: operator + session id. Do not push/PR until accepted." Ask it to correct anything it disagrees with.
-4. **Register it**: status table row with session id (the launcher knows it), arm the waiter. From here the normal protocol applies.
+4. **Register it**: status table row with session id (the launcher knows it). From here the normal protocol applies.
 5. Leave its tab and name as they are; the user is in that conversation.
 
 ## Peer team leads
 
-One team lead per repository. Several leads may run at once, each in its own Herdr workspace whose cwd is that project's space root (`~/work/mosaic/<project>` for Mosaic). Naming is the contract: session/agent name `<project>-team-lead` (e.g. `compliance-team-lead`, `campaigns-team-lead`); dev agents are `<project>-<task-ref>`.
+One team lead per repository. Several leads may run at once, each in its own Herdr workspace whose cwd is that project's space root. Naming is the contract: session/agent name `<project>-team-lead` (e.g. `compliance-team-lead`, `campaigns-team-lead`); dev agents are `<project>-<task-ref>`.
 
 Discover peers when you need one (never assume): `herdr agent list` and match `terminal_title_stripped` or `name` against `*-team-lead`; the row gives `pane_id`, `workspace_id`, `cwd`. Address a peer by its pane ID when it has no registered name.
 
 Cross-project work: if research shows a task belongs to another repo (a bug report from the wrong app, a shared package), do not spawn its devs under your workspace. Either hand the task to the peer lead with the facts you have, or, if you already started a dev, hand the dev over:
 
 1. Move the dev's pane into the peer's workspace so the user finds it there: `herdr pane move <dev-pane-id> --workspace <peer-workspace-id> --new-tab`. Agent names follow the pane; after the move use the name, not the old pane ID.
-2. Send the peer a handoff message (`herdr agent prompt <peer-name-or-pane>`) containing: dev agent name and new pane/tab IDs, worktree path and branch, brief file path, report file path and completion phrase, rules already given to the dev (discussion-first, no deploy, no push until accepted), and the established facts with `file:line`. End with "I am no longer tracking it."
+2. Send the peer a handoff message (`SendMessage` to the peer's session name; `herdr agent prompt <peer-name-or-pane>` only if the peer is not a Claude Code or pi session; see [Agent messaging](#agent-messaging)) containing: dev agent name and new pane/tab IDs, worktree path and branch, brief file path, report file path and completion phrase, rules already given to the dev (discussion-first, no deploy, no push until accepted), and the established facts with `file:line`. End with "I am no longer tracking it."
 3. Drop the row from your status table. Only one lead tracks a dev at a time.
 
-If no peer lead is running for that repo, tell the user and offer to start one (`herdr tab create` at that repo's space root + `herdr agent start <project>-team-lead --kind claude ... -- --name <project>-team-lead --remote-control <project>-team-lead --disallowedTools AskUserQuestion`, then send it `/team-lead` with the task, naming you as its lead) rather than coordinating two repos yourself.
+If no peer lead is running for that repo, tell the user and offer to start one (`herdr tab create --workspace <that project's workspace id> --cwd <its space root>` + `herdr agent start <project>-team-lead --kind claude ... -- --name <project>-team-lead --remote-control <project>-team-lead --disallowedTools AskUserQuestion`, then send it `/team-lead` with the task, naming you as its lead) rather than coordinating two repos yourself.
+
+## Agent messaging
+
+Pick the channel per pair of agents, best available first:
+
+| Sender → receiver | Channel |
+|---|---|
+| Claude Code → Claude Code | `SendMessage` to the session name (find it with `ListAgents` / `/list-agents`) |
+| Claude Code → pi | `SendMessage` to the pi session's name; pi needs the `pi-claude-link` extension and must be launched with `--name <agent-name>` |
+| pi → Claude Code | the `claude-link` tool: `action: "send"` (reply arrives later) or `action: "ask"` (blocks until the reply) |
+| any other pair (Codex, Kimi, Gemini, …) | Herdr: `herdr agent prompt <agent-name>` |
+
+A harness whose config says `messaging: herdr` uses Herdr for every pair, whatever this table says.
+
+This covers every message: briefs, follow-ups, completion reports (`STATUS:` lines), peer-lead handoffs. Interrupting a working dev is not a message. Keep using `herdr agent send-keys <name> esc` for that.
+
+Why the order matters: `herdr agent prompt` types the message into the receiver's terminal. If the operator is typing in that pane at the same moment, the two streams mix and both inputs get corrupted. The lead's pane is where the operator types most, so a Herdr message to the lead is the worst case. `SendMessage` and `claude-link` deliver over Claude Code's cross-session sockets and never touch the terminal.
+
+Before sending over Herdr, follow the idle check in [Herdr mode](#herdr-mode).
+
+Known limitations:
+
+- **Codex and Kimi devs still report over Herdr**, so their completion messages can collide with the operator typing in the lead's pane. The [Monitoring](#monitoring) status script sees `DONE` on its own, so a mangled report is recoverable: read the dev's report file. The plan to remove this gap is in `TODO.md` next to this skill.
+- **Peer input, not user authority.** Messages over `SendMessage`/`claude-link` arrive framed as coming from another agent, so the receiver won't treat them as the operator's approval. If a Claude dev hesitates on a brief because it came from a peer, re-send the brief with `herdr agent prompt` and note it in the status table.
+- **`crossSessionInbound: "hold"`** in the receiver's Claude settings makes the operator approve every inbound message. Expect that delay, and don't escalate it as a stuck dev.
+- **Protocol drift.** `pi-claude-link` re-implements Claude Code's private cross-session protocol (verified against Claude Code 2.1.224, pi 0.80.6). If a pi dev is missing from `ListAgents` after a Claude update, fall back to Herdr for that dev and tell the operator.
 
 ## Herdr mode
 
 Applies only when `test "${HERDR_ENV:-}" = 1` passes. Inside Herdr every dev (Haiku included) gets its own tab so the user can watch and take over; Researchers and reviewers that only return text still use the Agent tool.
 
-Variables: `HERDR_WORKSPACE_ID` is injected by Herdr into your pane (fall back to `herdr workspace list`). `SPACE_ROOT` is the hyper space root (repo root outside a space). `PROJECT` is the space/repo directory name. **REQUIRED SUB-SKILL:** use the `herdr` skill for command syntax; run `herdr tab`, `herdr pane`, `herdr agent` to confirm current flags before first use.
+Variables: `WORKSPACE` is your pane's current workspace. Look it up right before each `tab create` with `herdr pane current --current | jq -r .result.pane.workspace_id`. Never use `$HERDR_WORKSPACE_ID` for this: Herdr sets it when the pane starts and never updates it, so after your pane is moved to another workspace it still names the old one (verified with herdr 0.9.1). `SPACE_ROOT` is the hyper space root (repo root outside a space). `PROJECT` is the space/repo directory name. **REQUIRED SUB-SKILL:** use the `herdr` skill for command syntax; run `herdr tab`, `herdr pane`, `herdr agent` to confirm current flags before first use.
 
-Each dev gets **one tab** whose root pane runs the dev session, with cwd = the hyper space root (or the repo root outside a space). Do not split a shell pane next to it.
+Each dev gets **one tab** whose root pane runs the dev session, with cwd = the hyper space root (or the repo root outside a space).
 
 Session naming: `[project]-[task-ref]`, e.g. `campaigns-action-types`. Same name for the Claude display name, the Remote Control name, and the Herdr agent name.
 
 ```bash
 # 1. tab, cwd = space root, no focus steal
-tab=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$SPACE_ROOT" --label "$REF" --no-focus)
+WORKSPACE=$(herdr pane current --current | jq -r .result.pane.workspace_id)
+tab=$(herdr tab create --workspace "$WORKSPACE" --cwd "$SPACE_ROOT" --label "$REF" --no-focus)
 tab_id=$(jq -r .result.tab.tab_id <<<"$tab")
 root_pane=$(jq -r .result.root_pane.pane_id <<<"$tab")
 
@@ -317,54 +332,38 @@ herdr agent start "$name" --kind claude --pane "$root_pane" \
 #   herdr pane run "$root_pane" "<launch command from the config>"
 #   herdr agent rename "$root_pane" "$name"
 
-# 3. brief — fire and forget; --timeout is only valid together with --wait
+# 3. brief: pick the channel from "Agent messaging"
+#    Claude or pi dev: SendMessage to "$name" (pi: launch with `-- --name "$name"`)
+#    other harnesses: fire and forget; --timeout is only valid together with --wait
 herdr agent prompt "$name" "$(cat "$BRIEF_FILE")"
-
-# 4. one background waiter per dev; its completion is your notification
-herdr agent wait "$name" --timeout 3600000     # run via Bash run_in_background
 ```
 
-Check `herdr agent get "$name"` shows `idle` before prompting (`agent start` returns before the TUI is fully ready; `.result.agent.agent_status` may be null right after start). Do not `--wait` on the prompt itself: it blocks your turn for the whole task. Only prompt an agent whose status is `idle`/`done`: a prompt sent while it is `working` lands in the input box unsubmitted and the agent goes idle forever. If `agent get` reports idle but nothing happened, read the input box as described in [Reading the input box](#reading-the-input-box) — a real pending prompt in the `❯` box means send `herdr agent send-keys <name> enter`; a dim suggestion means nothing is pending. Waiters time out at 1h; on timeout re-arm unless the status table says the dev is done. `agent wait` can also return `done` on a brief idle right after a prompt (the dev paused, then continued). Treat a waiter firing as a signal to check, not as proof of completion: confirm the dev's report file exists (or `agent get` still says idle after ~20s) before reviewing; otherwise re-arm. Read results with `herdr agent read "$name" --source recent-unwrapped --lines 200`; on failure fall back to asking the dev to write its report to a file under `scratch/` and read that. Herdr agent names must match `[a-z][a-z0-9_-]{0,31}`. If `PROJECT-REF` is longer, truncate `PROJECT` to its first 8 chars; the ref is never shortened.
+No per-dev waiter: the dev's `STATUS:` message is the notification, and the [Monitoring](#monitoring) status script catches a dev that finishes without sending one.
+
+Check `herdr agent get "$name"` shows `idle` before prompting (`agent start` returns before the TUI is fully ready; `.result.agent.agent_status` may be null right after start). Do not `--wait` on the prompt itself: it blocks your turn for the whole task. Only prompt an agent whose status is `idle`/`done`: a prompt sent while it is `working` lands in the input box unsubmitted and the agent goes idle forever. If `agent get` reports idle but nothing happened, check the input box (see [Reading the input box](#reading-the-input-box)). Read results with `herdr agent read "$name" --source recent-unwrapped --lines 200`; on failure fall back to asking the dev to write its report to a file under `scratch/` and read that. Herdr agent names must match `[a-z][a-z0-9_-]{0,31}`. If `PROJECT-REF` is longer, truncate `PROJECT` to its first 8 chars; the ref is never shortened.
 
 Outside Herdr, the Agent tool is the launcher; the naming rule still applies to the agent `description`.
 
 ### Reading the input box
 
-Claude Code paints a **suggested next prompt** in the `❯` box as ghost text. It is not user input: nobody typed it, and pressing Enter would submit it as if you had. `--format text` strips attributes, so there a suggestion and an unsent draft are **indistinguishable**. Always read with attributes preserved:
-
-```bash
-herdr agent read "$name" --source visible --format ansi --lines 8 | cat -v | grep -a '❯'
-```
-
-- `❯` followed by `^[[0m^[[2m … ^[[0m` (SGR 2 dim, **no color**) is a **suggestion**: ignore it, never submit it, never report it as "typed but unsent".
-- `❯` followed by text carrying **no SGR at all** is an **unsent draft**: yours if you just prompted a working agent (send `enter`), the user's otherwise (leave it, tell the user).
-- `❯` followed by only spaces is an **empty box**: nothing pending. There is no plain-text placeholder.
-
-Fallback if the dim byte is ever absent (send `space`, re-read, then `backspace`; safe — never submits):
-
-```bash
-herdr agent send-keys "$name" space && sleep 1 && herdr agent read "$name" --source visible --format ansi --lines 8 | cat -v | grep -a '❯'
-herdr agent send-keys "$name" backspace   # always restore
-```
-
-A **suggestion vanishes** (box goes empty) because any input event calls `promptSuggestion.reset()`; a **draft is unchanged** (Claude Code trims the trailing space, so `hi` stays `hi` and the backspace is a no-op — never deletes a draft character). After the backspace the suggestion reappears.
-
-Verified 2026-09-16, Claude Code 2.1.273, `theme: light` (dim is emitted with no color SGR, so it is theme-independent): suggestion `❯ ^[[0m^[[2mcheck PR #42 comments^[[0m`; draft `❯ hi` (bare); space probe emptied the suggestion and left `hi` byte-identical. `herdr agent get` exposes no cursor/column field, and no draft is persisted to disk.
+Claude Code shows a dim **suggested next prompt** in its `❯` box; it is not input, so never submit or report it. Plain text only shows the difference with attributes kept: `herdr agent read "$name" --source visible --format ansi --lines 8 | cat -v | grep -a '❯'`. Dim text (`^[[2m`) is a suggestion; bare text is an unsent draft — yours if you just prompted a working agent (send `herdr agent send-keys "$name" enter`), otherwise the user's (leave it, tell the user).
 
 ## Monitoring
 
-Do not poll by hand and do not spend a subagent on watching. **Arm this the moment you launch your first dev — it is the backstop that catches a dev which finishes without messaging you (a silent dev is normal, not an error); without it, a done dev can sit idle indefinitely and you will not know.** Record `started` and the budget for every dev in the status table, then run one `Monitor` (the harness tool) that loops the status script every ~3 min. The script is `{{ platform.pluginRootVar }}/skills/team-lead/scripts/team-status.sh` — it lives in this plugin, not in your working directory, so always invoke it via `{{ platform.pluginRootVar }}` (never hardcode an install path). Pass `--table <your status-table path> --prefix <project>- --alerts-only --state <file>` (`--state` makes each alert fire once and emit `CLEARED` when it stops). Run it once by hand first to confirm it resolves before wrapping it in the Monitor. It emits a line only for `OVER-BUDGET`, `BLOCKED`, `DONE`, `MISSING`, `LOAD`, `HEAVY`. React to events: `DONE` → the "dev says finished" protocol; `OVER-BUDGET` → `agent read --lines 40`, then continue / interrupt (`send-keys esc`) / split; `LOAD`/`HEAVY` → stop your own reviewers first, then pause dispatching. `agent wait` is still fine for a single short step (a ship or a fix round).
+Do not poll by hand and do not spend a subagent on watching. **Arm this the moment you launch your first dev — it is the backstop that catches a dev which finishes without messaging you (a silent dev is normal, not an error); without it, a done dev can sit idle indefinitely and you will not know.** Record `started` and the budget for every dev in the status table, then run one `Monitor` (the harness tool) that loops the status script every ~3 min. The script is `{{ platform.pluginRootVar }}/skills/team-lead/scripts/team-status.sh` — it lives in this plugin, not in your working directory, so always invoke it via `{{ platform.pluginRootVar }}` (never hardcode an install path). Pass `--table <your status-table path> --prefix <project>- --alerts-only --state <file>` (`--state` makes each alert fire once and emit `CLEARED` when it stops). Run it once by hand first to confirm it resolves before wrapping it in the Monitor. It emits a line only for `OVER-BUDGET`, `BLOCKED`, `DONE`, `MISSING`, `LOAD`, `HEAVY`. React to events: `DONE` → the "dev says finished" protocol; `OVER-BUDGET` → `agent read --lines 40`, then continue / interrupt (`send-keys esc`) / split; `LOAD`/`HEAVY` → stop your own reviewers first, then pause dispatching. `herdr agent wait` is still fine for a single short step (a ship or a fix round).
 
 Calibrate budgets: after each task write the actual brief→DONE time next to the budget class in the status table; adjust the class table when reality disagrees three times in a row.
 
 ### Stall watchdog (Herdr, no tokens)
 
-`team-status.sh` needs you awake to read it. A team can also stall silently: a dev goes idle waiting on its leader while the leader believes the dev is busy, and nobody works for hours. Start `stall-watch.sh` once per session in its own Herdr pane (the user can see and stop it); it runs in a plain shell loop, costs no tokens, and only prompts an agent when there is something to act on:
+`team-status.sh` needs you awake to read it. A team can also stall silently: a dev goes idle waiting on its leader while the leader believes the dev is busy, and nobody works for hours. Start `stall-watch.sh` once per session as a background shell (Bash with `run_in_background`; the user sees and stops it in the task list). It runs a plain shell loop, costs no tokens, and only prompts an agent when there is something to act on. If your harness has no background shells, run it in a pane instead.
 
 ```bash
-herdr pane run <pane> "{{ platform.pluginRootVar }}/skills/team-lead/scripts/stall-watch.sh \
-  --team <leader>='<project>-<glob>' [--team ...] --escalate <your-agent-name> --quiet-min 15"
+{{ platform.pluginRootVar }}/skills/team-lead/scripts/stall-watch.sh \
+  --team <leader>='<project>-<glob>' [--team ...] --escalate <your-agent-name> --quiet-min 15
 ```
+
+It delivers its alerts with `herdr agent prompt`, so they can collide with the operator typing in the leader's pane (see [Agent messaging](#agent-messaging)); `TODO.md` tracks the fix.
 
 - A team is a leader plus every agent matching its globs. For your own devs, the leader is you (`--team <you>='<project>-*'`); for a Squad Leader, add a `--team` for it and its devs.
 - When nobody on a team has been `working` for `--quiet-min` minutes, it prompts the leader once per quiet episode with each member's status and the last lines of its pane. If the team is still quiet `--quiet-min` minutes later, it prompts `--escalate` once.
@@ -377,28 +376,17 @@ herdr pane run <pane> "{{ platform.pluginRootVar }}/skills/team-lead/scripts/sta
 
 The status table, budgets file, and briefs are the lead's memory. Any agent asked to test or run a script must work on **copies under `scratch/`**, never on the live status file; say so in the prompt. Keep the status table append-only from your side and take a copy (`cp notes/<table> scratch/<table>.bak`) before handing its path to any agent.
 
-## Load budget
+## Machine load
 
-The operator's machine is shared by every agent. Hard caps, unless the user raises them:
-- At most **2 heavy jobs** at a time across the team (a dev running tests/builds, a verifier, a `/code-review`, a Playwright run). Queue the rest; a waiting waiter costs nothing.
-- Devs work inline; they may use read-only Explore subagents but must not fork the whole task into a subagent, and must kill any watcher/server they started before reporting.
-- Verification runs are serialized: one `verify` at a time.
+The operator's machine is shared by every agent, and only you see every dev in flight, so you own how much runs at once. Hard caps, unless the user raises them:
+
+- At most **2 heavy jobs** at a time across the team (a dev running tests/builds, a verifier, a `/code-review`, a Playwright run). Queue the rest.
+- One `verify` run at a time.
+- **No dev starts the app** (`docker:up`, a dev server, any long-running stack) without your go-ahead; see the *App-run rule* in the brief template. Pre-authorize it in the brief when the task clearly needs it (a UI change to eyeball, a flow to click through); otherwise the dev asks and you grant or defer based on how many stacks are up. Track running apps in the status table. Keep the count to what the machine handles (often 1–2 stacks on a laptop). Before letting two devs run stacks at once, confirm the project's local-run scripts give each its own project name, ports and DB.
+- When the machine is full, prefer a PR that triggers the project's preview deployment, if it has one: the dev verifies on a server at zero local cost.
 - If the user says "slow down": stop your own background reviewers/verifiers first (they are yours), then tell devs to finish their current step and go idle.
 
-## Shared local resources
-
-Running the app locally (a docker/compose stack, a dev server) consumes real machine resources — RAM, CPU, disk. Several devs each booting a full stack at once can overload the developer's machine, even when the tooling isolates them from each other (distinct project names, per-worktree ports/DB). So the lead — who alone sees all in-flight devs — owns how many apps run at once.
-
-**The rule: a dev must not start the app (`docker:up`, a dev server, or any long-running stack) without the lead's go-ahead.** Put this in every brief (see the *App-run rule* in the brief template). Two ways the go-ahead is given:
-
-- **Preemptive:** when you know (or strongly suspect) a task needs the app running to be done — a UI change to eyeball, a flow to click through, a screenshot — say so in the brief: "You may run `docker:up` for this task." One fewer round-trip.
-- **On request:** otherwise the dev asks first ("I need to run the app to verify X — ok?"). You grant or defer based on how many stacks are already up. Track running apps as a column/note in your status table so you know the current count before granting another.
-
-Keep the concurrent count within what the machine handles (often 1–2 stacks on a laptop). When you must deny or defer a run because the machine is full, the alternative is a **PR to `dev`**: that triggers the pull-deploy preview environment, which runs the app on the server instead of the developer's machine — the dev verifies there, at zero local cost. Prefer this for anything that doesn't strictly need a local stack.
-
-Even with per-worktree isolation, if you deliberately have two devs run stacks at once, confirm the tooling actually gives each its own project name + ports + DB (check the project's local-run scripts); older setups shared a single `campaigns-local` project and fixed host ports, so two `docker:up`s fought over one stack.
-
-### Serialize with flock when necessary
+### Serialize with flock
 
 `flock` wraps a command in a kernel advisory lock on a file: exactly one holder at a time, later callers block until it frees, and the lock releases automatically when the process exits — crash included, so no stale-lock cleanup. Use it **preemptively** — decide at briefing time, not after a collision — whenever either condition holds:
 
