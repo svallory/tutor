@@ -30,7 +30,7 @@
 #                  [--state-dir DIR] [--once] [--dry-run]
 #   stall-watch.sh --snooze <leader> <minutes> [--state-dir DIR]
 #
-#   --team L=G      Leader agent name L; members are every Herdr agent whose
+#   --team L=G      Leader agent name or pane ID L; members are every Herdr agent whose
 #                   name matches one of the comma-separated shell globs G
 #                   (e.g. mx-squad-attr='mx-attr-*'). Repeatable.
 #   --escalate A    Agent to notify when a leader does not react (optional).
@@ -60,12 +60,20 @@ DRY=0
 TEAMS=()
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
-die() { echo "stall-watch: $*" >&2; exit 2; }
+usage() { echo 'usage: stall-watch.sh --team <leader>=<glob> [--escalate <agent>] [--quiet-min N] [--interval S] [--state-dir DIR] [--busy-if CMD] [--once] [--dry-run] | --snooze <leader> <minutes> [--state-dir DIR]' >&2; }
+die() { echo "stall-watch: $*" >&2; usage; exit 2; }
+value() { [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || die "missing value for $1"; }
+number() { [[ "$2" =~ ^[0-9]+$ ]] && (( 10#$2 > 0 )) || die "$1 must be a positive integer"; }
 
 if [[ "${1:-}" == "--snooze" ]]; then
-  [[ $# -ge 3 ]] || die "usage: --snooze <leader> <minutes> [--state-dir DIR]"
-  leader="$2"; minutes="$3"; shift 3
-  [[ "${1:-}" == "--state-dir" ]] && STATE_DIR="$2"
+  value "$@"; leader="$2"; shift 2
+  value "--snooze minutes" "${1:-}"; minutes="$1"; number minutes "$minutes"; shift
+  if [[ $# -gt 0 ]]; then
+    [[ "$1" == "--state-dir" ]] || die "unexpected snooze argument: $1"
+    value "$@"; STATE_DIR="$2"; shift 2
+  fi
+  [[ $# -eq 0 ]] || die "unexpected snooze argument: $1"
+  [[ "$leader" =~ ^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_-]+)?$ ]] || die 'invalid leader'
   mkdir -p "$STATE_DIR"
   echo $(( $(date +%s) + minutes * 60 )) > "$STATE_DIR/$leader.snooze"
   echo "stall-watch: $leader snoozed for ${minutes}m"
@@ -74,12 +82,12 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --team) TEAMS+=("$2"); shift 2 ;;
-    --escalate) ESCALATE="$2"; shift 2 ;;
-    --busy-if) BUSY_IF="$2"; shift 2 ;;
-    --quiet-min) QUIET_MIN="$2"; shift 2 ;;
-    --interval) INTERVAL="$2"; shift 2 ;;
-    --state-dir) STATE_DIR="$2"; shift 2 ;;
+    --team) value "$@"; [[ "$2" == *=?* && "${2%%=*}" =~ ^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_-]+)?$ ]] || die "invalid team: $2"; TEAMS+=("$2"); shift 2 ;;
+    --escalate) value "$@"; ESCALATE="$2"; shift 2 ;;
+    --busy-if) value "$@"; BUSY_IF="$2"; shift 2 ;;
+    --quiet-min) value "$@"; number "$1" "$2"; QUIET_MIN="$2"; shift 2 ;;
+    --interval) value "$@"; number "$1" "$2"; INTERVAL="$2"; shift 2 ;;
+    --state-dir) value "$@"; STATE_DIR="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
@@ -101,7 +109,14 @@ pane_tail() {
     | tail -n 6 | cut -c1-160 | paste -sd'|' - | sed 's/|/ | /g'
 }
 
-status_of() { jq -r --arg n "$1" '.result.agents[] | select(.name==$n) | .agent_status // "unknown"' <<<"$AGENTS" | head -1; }
+# Resolve names to their live name, or preserve an unnamed agent's pane ID.
+# Missing targets retain the supplied ID/name so escalation can still report them.
+resolve_target() {
+  local target="$1" row
+  row=$(jq -r --arg n "$target" '.result.agents[] | select(.name==$n or .pane_id==$n) | (.name // .pane_id)' <<<"$AGENTS" | head -1)
+  printf '%s\n' "${row:-$target}"
+}
+status_of() { jq -r --arg n "$1" '.result.agents[] | select(.name==$n or .pane_id==$n) | .agent_status // "unknown"' <<<"$AGENTS" | head -1; }
 
 deliver() { # target message -> 0 delivered, 1 retry later
   local target="$1" msg="$2" st
@@ -115,6 +130,7 @@ deliver() { # target message -> 0 delivered, 1 retry later
 
 check_team() {
   local spec="$1" leader="${1%%=*}" globs="${1#*=}"
+  leader="$(resolve_target "$leader")"
   local sf="$STATE_DIR/$leader.state" now; now=$(date +%s)
   local last_active alerted escalated
   last_active=$now; alerted=0; escalated=0
@@ -176,10 +192,13 @@ check_team() {
         detail+=" [$m, $(status_of "$m"): $(pane_tail "$m")]"
       done
       local msg="stall-watch: nobody on your team has been working for ${quiet}m ($member_lines). A dev may be waiting on you, or you on it. Check each and unblock it; if the team is legitimately waiting (user, CI, merge), run: $SELF --snooze $leader <minutes> --state-dir $STATE_DIR.${detail}"
-      deliver "$leader" "$msg" && alerted=$now
+      # Start the escalation clock even if the leader is missing or delivery
+      # fails; otherwise an absent leader traps the team in this branch forever.
+      deliver "$leader" "$msg" || log "$leader: alert undeliverable; escalation clock started"
+      alerted=$now
     elif (( alerted > 0 && escalated == 0 )) && [[ -n "$ESCALATE" ]] && (( (now - alerted) / 60 >= QUIET_MIN )); then
       local msg="stall-watch: team $leader is still quiet $(( (now - alerted) / 60 ))m after its leader was alerted ($member_lines). The leader may be stuck or waiting on you. Leader's last lines: $(pane_tail "$leader")"
-      deliver "$ESCALATE" "$msg" && escalated=$now
+      deliver "$ESCALATE_TARGET" "$msg" && escalated=$now
     fi
   fi
 
@@ -189,6 +208,7 @@ check_team() {
 
 while :; do
   if AGENTS="$(herdr agent list 2>/dev/null)" && jq -e '.result.agents' >/dev/null 2>&1 <<<"$AGENTS"; then
+    ESCALATE_TARGET="$(resolve_target "$ESCALATE")"
     for t in "${TEAMS[@]}"; do check_team "$t"; done
   else
     log "herdr agent list failed; retrying"

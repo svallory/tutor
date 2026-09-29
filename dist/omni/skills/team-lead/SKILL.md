@@ -23,7 +23,7 @@ Questions travel up the chain, one level at a time. Only the agent at the top �
 Before step 0 of the workflow, once per session, after the [Harness config](#harness-config) is loaded (or written by [Harness setup](#harness-setup)):
 
 ```bash
-$SKILL_DIR/skills/team-lead/scripts/check-deps.sh --config "<harnesses.yaml path>"
+$SKILL_DIR/skills/team-lead/scripts/check-deps.sh --config "${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml"
 ```
 
 It checks `git`, `gh` (and its login), `jq`, `wt`, `flock`, `herdr` when `HERDR_ENV=1`, the CLI of every harness in the config, and `pi-claude-link` when the config includes pi without `messaging: herdr`. It prints nothing and exits 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each. Skills can't be checked from a shell: confirm `worktrunk`, `code-review` and (inside Herdr) `herdr` are in the skills list surfaced to you this session, not from memory.
@@ -32,7 +32,7 @@ If anything is missing, **stop before spawning any dev** and tell the user what 
 
 ## Harness config
 
-Before step 0, read your saved harness choices: `cat "$SKILL_DIR/skills/team-lead/harnesses.yaml"`. If the file does not exist, run [Harness setup](#harness-setup) first. Otherwise it is the source of truth for which harnesses and models you may launch.
+Before step 0, read your saved harness choices: `cat "${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml"`. If the file does not exist, run [Harness setup](#harness-setup) first. Otherwise it is the source of truth for which harnesses and models you may launch.
 
 Re-run the setup when the user asks ("reconfigure harnesses", "add codex to the team"), or when the dependency check reports a configured harness missing — tell the user which one and ask before dropping it. If `pi-claude-link` is reported missing and the user doesn't want it back, set `messaging: herdr` for pi.
 
@@ -65,15 +65,16 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
    done
    ```
 2. **Ask which to use.** One multi-select question per group of at most four detected harnesses (the question tool caps options at four; use up to four questions). Label each option with the harness and one line on what it is good for, from [Known harnesses and models](#known-harnesses-and-models). Tell the user they can type any harness that was not detected in "Other" (a wrapper script, a remote runner, a CLI installed somewhere unusual) with its launch command.
-3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. For a multi-provider harness, list what it can actually run instead of guessing: `pi --list-models` shows only providers that have credentials configured, so a paid model whose provider isn't set up won't appear. Ask only what you cannot find out (for example which models their subscription includes). Then check what the chosen harnesses need for [Agent messaging](#agent-messaging): for pi, the `pi-claude-link` extension (`pi list | grep -q pi-claude-link`). If it is missing, ask the user before installing (`pi install git:github.com/alonw0/pi-claude-link`); if they decline, record `messaging: herdr` for pi in the config so pi devs use Herdr.
+3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), optional `bin:` (the actual executable, required when `launch:` starts with `env` or an assignment), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. For a multi-provider harness, list what it can actually run instead of guessing: `pi --list-models` shows only providers that have credentials configured, so a paid model whose provider isn't set up won't appear. Ask only what you cannot find out (for example which models their subscription includes). Then check what the chosen harnesses need for [Agent messaging](#agent-messaging): for pi, the `pi-claude-link` extension (`pi list | grep -q pi-claude-link`). If it is missing, ask the user before installing (`pi install git:github.com/alonw0/pi-claude-link`); if they decline, record `messaging: herdr` for pi in the config so pi devs use Herdr.
 4. **Propose routing.** Map roles to an ordered list of `harness:model` preferences, cheapest adequate first, following the "best for" column. Ask the user to confirm or edit it in one question with your proposal as the default.
-5. **Save** to `$SKILL_DIR/skills/team-lead/harnesses.yaml` (create the directory if needed) and show the user a 5-line summary. Format:
+5. **Save** to `${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml` (create the directory if needed) and show the user a 5-line summary. Format:
    ```yaml
    # team-lead harness config. Written by the team-lead skill; safe to edit by hand.
    updated: 2026-09-27
    harnesses:
      codex:
        launch: codex -m gpt-5.6-sol -c 'model_reasoning_effort="high"'
+       bin: codex            # optional for direct commands; required for env/wrappers
        herdr_kind: codex
        models: [gpt-5.6-sol]
        notes: weekly quota; check before assigning M/L work
@@ -163,7 +164,7 @@ Every brief must contain these parts in this order:
 9. **Identity**: the operator's name and the dev's session id (the launcher knows it — in Herdr `agent start` returns `.result.agent.agent_session.value`). The dev puts both in the PR description's AI-assisted note so the session can be resumed (`claude --resume <id>`). Never in commit messages.
 10. **Instructions duty**: "If you learn a fact the project's agent instructions file should hold (command, environment id, service, known local failure, convention) and it is missing or wrong there, fix it in this branch as a `docs(agents):` commit and list it in your report under *Instructions updated* (write *none* if nothing)."
 11. **Chain-of-command rule**: "You have a lead: <lead name>. Never ask the operator a question and never use `AskUserQuestion` (and your harness's own ask-the-operator tool; they are disabled for you). Send every question to the lead with the same mechanism as the completion signal, FIRST LINE `QUESTION — <task-ref>`, then the question, the options you see and your recommendation, and wait for the answer. If the answer needs the operator, the lead gets it. Only if the operator types into your tab first may you answer them there; in that case, before writing `STATUS: DONE`, ask them whether they consider the task done and record `User-accepted: yes/no` in the report."
-12. **Signal completion (REQUIRED — the dev's actual last action)**: "After writing your report file, you MUST notify the lead — the lead is NOT watching your tab and receives no automatic 'done' signal. Send one message to the lead, using the channel the brief names (see [Agent messaging](#agent-messaging)) whose FIRST LINE is `STATUS: DONE|BLOCKED|NEEDS-USER — <task-ref>` followed by the report file path and a 2–3 line summary (what changed, test/typecheck counts). Do this exactly once, when truly finished (or when stuck per the 3-attempt rule). Going idle without sending this message means the lead never learns you finished." Tell the dev in the brief exactly who to send to and how: the lead's session name (the first line of `ListAgents` output) and the channel for the dev's harness — `SendMessage` for a Claude dev, the `claude-link` tool with `action: "send"` for a pi dev, `herdr agent prompt <lead-agent-name>` for any other harness.
+12. **Signal completion (REQUIRED — the dev's actual last action)**: "After writing your report file, you MUST notify the lead — the lead is NOT watching your tab and receives no automatic 'done' signal. Send one message to the lead, using the channel the brief names (see [Agent messaging](#agent-messaging)) whose FIRST LINE is `STATUS: DONE|BLOCKED|NEEDS-USER — <task-ref>` followed by the report file path and a 2–3 line summary (what changed, test/typecheck counts). Do this exactly once, when truly finished (or when stuck per the 3-attempt rule). Going idle without sending this message means the lead never learns you finished." Tell the dev exactly who to send to and how: pick the channel for the **sender → receiver pair (dev → lead)** from [Agent messaging](#agent-messaging), respecting `messaging: herdr`. For a Claude lead, Claude devs use `SendMessage` and pi devs use `claude-link`; for a Kimi or other non-Claude lead, both report via Herdr. Give the lead's session name for socket messaging or live Herdr name/pane ID for Herdr.
 
 Only put in the brief what a Researcher has confirmed exists on the *base branch* of the worktree; a requirement copied from another branch or from memory (a CI gate, a changelog file) sends the dev hunting for something that is not there.
 
@@ -312,11 +313,17 @@ herdr agent start "$name" --kind claude --pane "$root_pane" \
 #   herdr pane run "$root_pane" "<launch command from the config>"
 #   herdr agent rename "$root_pane" "$name"
 
-# 3. brief: pick the channel from "Agent messaging"
-#    Claude or pi dev: SendMessage to "$name" (pi: launch with `-- --name "$name"`)
-#    other harnesses: fire and forget; --timeout is only valid together with --wait
+```
+
+**Brief branch — Claude lead → Claude or pi dev (default):** use the `SendMessage` tool with recipient `$name` and message set to the contents of `$BRIEF_FILE`. Launch pi with `--name "$name"`. This sends over sockets; do not also type into the pane.
+
+**Brief branch — other harness pairs or `messaging: herdr`:** after `herdr agent get "$name"` confirms `idle`/`done`, fire and forget (do not use `--wait`):
+
+```bash
 herdr agent prompt "$name" "$(cat "$BRIEF_FILE")"
 ```
+
+Choose the lead → dev pair from [Agent messaging](#agent-messaging); a Kimi/omni lead does not have Claude's `SendMessage` tool.
 
 No per-dev waiter: the dev's `STATUS:` message is the notification, and the [Monitoring](#monitoring) status script catches a dev that finishes without sending one.
 
@@ -340,12 +347,12 @@ Calibrate budgets: after each task write the actual brief→DONE time next to th
 
 ```bash
 $SKILL_DIR/skills/team-lead/scripts/stall-watch.sh \
-  --team <leader>='<project>-<glob>' [--team ...] --escalate <your-agent-name> --quiet-min 15
+  --team <leader-name-or-pane-id>='<project>-<glob>' [--team ...] --escalate <agent-name-or-pane-id> --quiet-min 15
 ```
 
 It delivers its alerts with `herdr agent prompt`, so they can collide with the operator typing in the leader's pane (see [Agent messaging](#agent-messaging)); `TODO.md` tracks the fix.
 
-- A team is a leader plus every agent matching its globs. For your own devs, the leader is you (`--team <you>='<project>-*'`); for a Squad Leader, add a `--team` for it and its devs.
+- A team is a leader plus every agent matching its globs. For your own devs, the leader is you (`--team <you>='<project>-*'`); for a Squad Leader, add a `--team` for it and its devs. Use the live Herdr agent name, or your pane ID if you have no Herdr name: `herdr pane current --current | jq -r .result.pane.pane_id`. Do not use `$HERDR_PANE_ID`: it goes stale if the pane moves. Use the same rule for `--escalate`.
 - When nobody on a team has been `working` for `--quiet-min` minutes, it prompts the leader once per quiet episode with each member's status and the last lines of its pane. If the team is still quiet `--quiet-min` minutes later, it prompts `--escalate` once.
 - A member stuck in a non-idle, non-working state (approval dialog, error) for two checks is reported to the leader right away.
 - It only prompts agents that are not `working`, retrying on the next tick otherwise.

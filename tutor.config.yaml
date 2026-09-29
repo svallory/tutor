@@ -30,10 +30,12 @@ platforms:
     harness: Kimi Code
     configDir: .kimi-code
     pluginRootVar: $KIMI_PLUGIN_ROOT
+    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/team-lead
   omni:
     harness: your AI coding agent
     configDir: .agents
     pluginRootVar: $SKILL_DIR
+    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/team-lead
 
 plugins:
   ghostwriter:

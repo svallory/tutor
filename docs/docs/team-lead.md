@@ -32,7 +32,7 @@ Checked once per session by `check-deps.sh` (skills are checked against the agen
 | `but` (GitButler) | only for projects that use it |
 | `flock` | serializing heavy or order-sensitive work (macOS: `brew install flock`) |
 | the CLI of each configured harness | launching devs on it |
-| [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | only when pi is a configured harness — messaging between pi and Claude Code (install: `pi install git:github.com/alonw0/pi-claude-link`) |
+| [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | when pi is configured for socket messaging with Claude Code; not needed with `messaging: herdr` (install: `pi install git:github.com/alonw0/pi-claude-link`) |
 
 A missing `herdr` while `HERDR_ENV=1` is reported as a contradiction, not quietly downgraded.
 
@@ -50,7 +50,7 @@ Triggers on **"team lead"**, **"dev leader"**, **"squad leader"**, **"start dev 
 
 ## Harnesses
 
-On first use the lead detects which coding-agent CLIs are installed (Claude Code, Codex, Kimi, pi, Gemini, and others), asks which ones you want on the team, and saves your choice plus a role → `harness:model` routing to `harnesses.yaml` in the plugin's data directory. The file is plain YAML; edit it by hand or ask the lead to "reconfigure harnesses".
+On first use the lead detects which coding-agent CLIs are installed (Claude Code, Codex, Kimi, pi, Gemini, and others), asks which ones you want on the team, and saves your choice plus a role → `harness:model` routing to `harnesses.yaml` in a persistent user directory (`${CLAUDE_PLUGIN_DATA}` for Claude, `${XDG_CONFIG_HOME:-$HOME/.config}/team-lead` for Kimi/standalone). The file is plain YAML; edit it by hand or ask the lead to "reconfigure harnesses".
 
 For multi-provider harnesses the lead lists what can actually run rather than guessing: `pi --list-models` shows only providers with credentials configured.
 
@@ -64,7 +64,7 @@ The lead picks the cheapest role that will finish in one or two attempts, escala
 | Mechanic | haiku | Purely mechanical edits: renames, moving files, applying a known pattern to N places, formatting |
 | Developer | sonnet | Default for normal tasks: features, bug fixes, tests, small refactors |
 | Senior Dev | opus | Tricky concurrency, gnarly types, subtle bugs, multi-system changes |
-| Squad Leader | fable | A lead for one feature — may spawn its own devs and reports back at the end |
+| Squad Leader | opus | A lead for one feature — may spawn its own devs and reports back at the end; Fable only on explicit request |
 
 The model names above are what the `claude` platform build pins. On platforms without a model tier map, the skill ships a generic version of this table and you map the roles to your harness's own tiers.
 
@@ -198,7 +198,7 @@ All live in the plugin and are invoked through the plugin root variable, never a
 check-deps.sh [--config <harnesses.yaml>]
 ```
 
-Checks the base CLIs, `herdr` when `HERDR_ENV=1`, every configured harness's CLI, and `pi-claude-link` when pi is configured. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
+Checks the base CLIs, `herdr` when `HERDR_ENV=1`, every configured harness's CLI (`bin:` may explicitly name its executable), and `pi-claude-link` when pi is configured without `messaging: herdr`. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
 
 ### `rebase-worktrees.sh`
 
@@ -226,10 +226,10 @@ The lead wraps this in a single monitor loop running about every 3 minutes, arme
 
 ### `stall-watch.sh`
 
-A token-free watchdog the lead starts once per session as a background shell. When nobody on a team has been working for `--quiet-min` minutes, it prompts the team's leader with each member's status; if the team stays quiet, it escalates once. `--snooze <leader> <minutes>` silences it while a team is legitimately waiting.
+A token-free watchdog the lead starts once per session as a background shell. When nobody on a team has been working for `--quiet-min` minutes, it prompts the team's leader with each member's status; if the team stays quiet, it escalates once. `--snooze <leader> <minutes>` silences it while a team is legitimately waiting. Unnamed Herdr leaders use the live pane ID from `herdr pane current --current | jq -r .result.pane.pane_id` (not the possibly stale `$HERDR_PANE_ID`).
 
 ```
-stall-watch.sh --team <leader>='<project>-<glob>' [--team ...] --escalate <agent> --quiet-min 15
+stall-watch.sh --team <leader-name-or-pane-id>='<project>-<glob>' [--team ...] --escalate <agent-name-or-pane-id> --quiet-min 15
 ```
 
 ## Red flags
