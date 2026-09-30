@@ -50,7 +50,9 @@
  *              models out of dev/intern. A coding index missing from the data (the free endpoint
  *              lacks it for most rows) is estimated from the intelligence index and flagged.
  *  operator    config.operatorRanking (best first) is checked against every generated chain; each
- *  ranking     pair a chain orders against it becomes a `ranking:` warning.
+ *  ranking     pair a chain orders against it becomes a `ranking:` warning. Models in one group are
+ *              equals: they share a tier's capability floor, and the first-fallback free model is
+ *              placed after the last model ranked above it.
  *  harnesses   config.extraModels adds models pi does not list (Claude Code's opus/sonnet/haiku);
  *              config.harnesses maps a provider to its output prefix (claude:opus vs pi:...).
  *  absent      config.aaAbsent places a ranked model AA does not carry (Kimi K3 on the free
@@ -984,7 +986,14 @@ export function selectTier(
     const best = Math.max(...(eligible.length > 0 ? eligible : pool).map((s) => s.entry.capability ?? -Infinity))
     if (Number.isFinite(best)) {
       const floor = tierConfig.minCapabilityRatio * best
-      pool = pool.filter((s) => s.entry.capability != null && s.entry.capability >= floor)
+      const passing = pool.filter((s) => s.entry.capability != null && s.entry.capability >= floor)
+      // the operator rates models in one ranking group as equals, so a model tied with a qualifier
+      // qualifies too, even where estimated or measured capability puts it a little under the floor
+      const groups = new Set(passing.map((s) => operatorRank(config, s.entry.provider, s.entry.modelId)))
+      groups.delete(-1)
+      pool = pool.filter(
+        (s) => passing.includes(s) || groups.has(operatorRank(config, s.entry.provider, s.entry.modelId)),
+      )
     }
   }
 
@@ -1095,8 +1104,25 @@ function freeEntry(model: FreeModel, tierConfig: TierConfig, config: Config): Ch
   }
 }
 
-/** Splice free fallbacks into a ranked chain: first-fallback at index 1, last at the end. */
-function placeFree(ranked: ChainEntry[], free: ChainEntry[], rules: FreeModel[]): ChainEntry[] {
+/** Index of the config.operatorRanking group a model belongs to (0 = best), or -1 when unranked. */
+export function operatorRank(config: Config, provider: string, modelId: string): number {
+  const id = `${provider}/${modelId}`
+  return (config.operatorRanking ?? []).findIndex((group) => group.some((pattern) => globMatch(pattern, id)))
+}
+
+/**
+ * Splice free fallbacks into a ranked chain. The first-fallback model goes right after the last
+ * entry the operator ranking puts above it (first when none does; never ahead of `minIndex`
+ * pinned entries); with no ranking for it, right after the primary. The last-resort model closes
+ * the chain.
+ */
+function placeFree(
+  ranked: ChainEntry[],
+  free: ChainEntry[],
+  rules: FreeModel[],
+  config: Config,
+  minIndex = 0,
+): ChainEntry[] {
   const chain = [...ranked]
   const at = (position: FreeModelRule["position"]) => {
     const i = rules.findIndex((m) => m.rule.position === position)
@@ -1104,7 +1130,19 @@ function placeFree(ranked: ChainEntry[], free: ChainEntry[], rules: FreeModel[])
   }
   const first = at("first-fallback")
   const last = at("last")
-  if (first) chain.splice(Math.min(1, chain.length), 0, first)
+  if (first) {
+    const own = operatorRank(config, first.provider, first.modelId)
+    let index = Math.min(minIndex + 1, chain.length)
+    if (own >= 0) {
+      index = minIndex
+      chain.forEach((e, i) => {
+        if (i >= minIndex && operatorRank(config, e.provider, e.modelId) !== -1 && operatorRank(config, e.provider, e.modelId) < own) {
+          index = i + 1
+        }
+      })
+    }
+    chain.splice(index, 0, first)
+  }
   if (last) chain.push(last)
   return chain
 }
@@ -1185,7 +1223,7 @@ export function buildTiers(
     }
     if (tierFree.length > 0) {
       const entries = tierFree.map((m) => freeEntry(m, tierConfig, config))
-      chain.entries = placeFree(chain.entries, entries, tierFree)
+      chain.entries = placeFree(chain.entries, entries, tierFree, config, tierPinned.length)
     }
     chains.push(chain)
     if (config.escalation.allow || chain.entries.length === 0) continue
@@ -1445,10 +1483,7 @@ export function formatJson(chains: TierChain[], meta: MetaOutput): JsonOutput {
 export function rankingWarnings(chains: TierChain[], config: Config): string[] {
   const groups = config.operatorRanking ?? []
   if (groups.length === 0) return []
-  const rankOf = (e: ChainEntry): number => {
-    const id = `${e.provider}/${e.modelId}`
-    return groups.findIndex((group) => group.some((pattern) => globMatch(pattern, id)))
-  }
+  const rankOf = (e: ChainEntry): number => operatorRank(config, e.provider, e.modelId)
   const warnings: string[] = []
   for (const chain of chains) {
     const ranked = chain.entries

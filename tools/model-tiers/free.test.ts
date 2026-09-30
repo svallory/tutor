@@ -5,7 +5,9 @@ import {
   buildTiers,
   formatJson,
   normalizeAAModels,
+  rankingWarnings,
   resolveFreeModels,
+  resolvePinned,
   validateConfig,
   type Config,
   type FreeConfig,
@@ -195,5 +197,115 @@ describe("free config validation", () => {
 
   test("a valid free block passes", () => {
     expect(validateConfig(baseConfig({ free: FREE }))).toEqual([])
+  })
+})
+
+describe("round 3: first fallback placed by operator ranking", () => {
+  const ranking = [["*/alpha"], ["*/bravo"], ["*/bunny"], ["*/charlie"]]
+  const chainFor = (tier: string, cfg: Partial<Config> = {}) => {
+    const config = baseConfig({
+      escalation: { allow: true, scope: "model" },
+      free: FREE,
+      operatorRanking: ranking,
+      ...cfg,
+    })
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, piModels, config)
+    const { free } = resolveFreeModels(config, piModels)
+    return buildTiers(candidates, config, free).chains.find((c) => c.tier === tier)!
+  }
+  const names = (chain: { entries: { modelId: string }[] }) => chain.entries.map((e) => e.modelId)
+
+  test("goes right after the last model the operator ranks above it", () => {
+    // alpha, bravo outrank bunny; charlie and the unranked delta do not
+    const cto = chainFor("cto", {
+      tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
+      chainLength: 6,
+    })
+    expect(names(cto)).toEqual(["alpha", "bravo", "bunny", "charlie", "delta", "paw"])
+  })
+
+  test("goes first when no ranked model outranks it", () => {
+    const config = { operatorRanking: [["*/bunny"], ["*/alpha"], ["*/bravo"]] }
+    const cto = chainFor("cto", { ...config, tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } } })
+    expect(names(cto)[0]).toBe("bunny")
+    expect(names(cto).at(-1)).toBe("paw")
+  })
+
+  test("an unranked primary is ignored: without ranked models above, the free model is first", () => {
+    const cto = chainFor("cto", {
+      operatorRanking: [["*/bunny"]],
+      tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
+    })
+    expect(names(cto)[0]).toBe("bunny")
+  })
+
+  test("without an operator ranking it still sits right after the primary", () => {
+    expect(names(chainFor("cto", { operatorRanking: [] }))[1]).toBe("bunny")
+  })
+
+  test("pinned research preferences stay ahead of the free fallback", () => {
+    const config = baseConfig({
+      free: FREE,
+      operatorRanking: [["*/bunny"], ["google/gemini-*"]],
+      research: { minContextTokens: 200_000, prefer: ["google/gemini-3.8-flash"] },
+      tiers: { research: { axis: "context-cost", minCapabilityRatio: 0.1, rankBy: ["cost"], thinking: "off" } },
+    })
+    const pis = [...piModels, pi("google", "gemini-3.8-flash", { contextTokens: 1_000_000 })]
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, pis, config)
+    const { free } = resolveFreeModels(config, pis)
+    const { pinned } = resolvePinned(config, pis, candidates)
+    const research = buildTiers(candidates, config, free, pinned).chains[0]
+    expect(names(research).slice(0, 2)).toEqual(["gemini-3.8-flash", "bunny"])
+  })
+
+  test("the ranking check finds no violation in a chain built this way", () => {
+    const config = baseConfig({
+      escalation: { allow: true, scope: "model" },
+      free: FREE,
+      operatorRanking: ranking,
+      tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
+      chainLength: 6,
+    })
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, piModels, config)
+    const { free } = resolveFreeModels(config, piModels)
+    expect(rankingWarnings(buildTiers(candidates, config, free).chains, config)).toEqual([])
+  })
+})
+
+describe("round 3: operator equals share a tier's capability floor", () => {
+  const rows = [
+    aaRow("Opus (max)", "opus", { coding: 100, intelligence: 100, costPerTask: 9 }),
+    aaRow("Astra (max)", "astra", { coding: 93, intelligence: 93, costPerTask: 3 }),
+    aaRow("Other (max)", "other", { coding: 93, intelligence: 93, costPerTask: 3 }),
+  ]
+  const pis = [pi("claude", "opus"), pi("openai-codex", "astra"), pi("openai-codex", "other")]
+  const tiers = { cto: { minCapabilityRatio: 0.95, rankBy: ["capability"], thinking: "high" } } as Config["tiers"]
+  const ids = (cfg: Config) => {
+    const models = normalizeAAModels(rows, cfg.capability.weights)
+    const { candidates } = buildCandidates(models, pis, cfg)
+    return buildTiers(candidates, cfg).chains[0].entries.map((e) => e.modelId)
+  }
+
+  test("a model the operator rates equal to a qualifier qualifies, an unranked one at the same score does not", () => {
+    const config = baseConfig({ tiers, operatorRanking: [["claude/opus", "*/astra"]] })
+    expect(ids(config)).toEqual(["opus", "astra"])
+  })
+
+  test("without an operator ranking the floor applies as before", () => {
+    expect(ids(baseConfig({ tiers }))).toEqual(["opus"])
+  })
+
+  test("the reservation of the top slot still applies", () => {
+    const config = baseConfig({
+      tiers: { ...tiers, lead: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
+      operatorRanking: [["claude/opus", "*/astra"]],
+    })
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, pis, config)
+    const lead = buildTiers(candidates, config).chains.find((c) => c.tier === "lead")!
+    expect(lead.entries.map((e) => e.modelId)).not.toContain("opus")
   })
 })
