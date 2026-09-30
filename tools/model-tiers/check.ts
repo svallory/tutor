@@ -14,6 +14,9 @@
  *   --gaps               also print, per table entry, whether AA has a row at the entry's own effort
  *   --help               this header
  *
+ * Exit codes: 0 no remove/add proposals; 1 at least one remove or add proposal; 2 argument or I/O error
+ * (unknown flag, missing table or pi list, unreadable or malformed table, `pi --list-models` failing).
+ *
  * Checks (exit 1 on the first two):
  *   remove    table entries pi no longer lists
  *   add       pi models of the covered providers that no role uses and the table's `skip:` list omits
