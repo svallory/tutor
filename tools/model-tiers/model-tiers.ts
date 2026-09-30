@@ -44,7 +44,17 @@
  *              cost 0, quality from a sourced override, availability flagged "unknown" until
  *              the provider says otherwise. config.free.excludeTiers opts a tier out.
  *  quota       operator plan limits (requests per 5h) floor the loop-heavy tiers: a model with
- *              fewer than quota.tiers[tier] requests/5h is kept out of that tier's chain.
+ *              fewer than quota.tiers[tier] requests/5h may follow the primary but never be it.
+ *  capability  lead/senior/dev rank by capability in buckets of `capabilityBucket` points, then
+ *  ranking     cost, so cost only breaks near-ties. `maxCapabilityRatio` keeps the overall best
+ *              models out of dev/intern. A coding index missing from the data (the free endpoint
+ *              lacks it for most rows) is estimated from the intelligence index and flagged.
+ *  operator    config.operatorRanking (best first) is checked against every generated chain; each
+ *  ranking     pair a chain orders against it becomes a `ranking:` warning.
+ *  harnesses   config.extraModels adds models pi does not list (Claude Code's opus/sonnet/haiku);
+ *              config.harnesses maps a provider to its output prefix (claude:opus vs pi:...).
+ *  absent      config.aaAbsent places a ranked model AA does not carry (Kimi K3 on the free
+ *              endpoint) between two known models; measured AA data wins when it appears.
  *
  * ## Tests
  *
@@ -88,9 +98,22 @@ export interface QuotaRule {
 
 export interface TierConfig {
   minCapabilityRatio?: number
+  /** capability points that count as a tie when ranking by "capability" (cost then breaks the tie) */
+  capabilityBucket?: number
+  /** keep models above this share of the overall best capability out of the tier (reserves top models for top tiers) */
+  maxCapabilityRatio?: number
   rankBy: RankKey[]
   thinking: Effort | "off"
   axis?: "context-cost"
+}
+
+export interface AbsentModel {
+  name: string
+  /** normalized base keys of the models it sits between, better one first */
+  between: [string, string]
+  /** 0 = as good as the first neighbor, 1 = as good as the second; default 0.5 */
+  fraction?: number
+  source: string
 }
 
 /**
@@ -118,7 +141,8 @@ export interface Config {
   cost: {
     subscriptionWeight: number
     defaultBilling: Billing
-    providers: Record<string, { billing: Billing }>
+    /** `weight` overrides subscriptionWeight for one provider (scarce quota => closer to 1) */
+    providers: Record<string, { billing: Billing; weight?: number }>
   }
   blocked?: BlockRule[]
   quota?: {
@@ -127,6 +151,14 @@ export interface Config {
     providers?: Record<string, { plan?: string; models?: Record<string, QuotaRule> }>
   }
   free?: FreeConfig
+  /** models a harness can run that pi's registry does not list (e.g. Claude Code's opus/sonnet/haiku) */
+  extraModels?: PiModel[]
+  /** provider -> harness prefix in generated output; providers not listed use "pi" */
+  harnesses?: Record<string, string>
+  /** ranked models absent from the AA dataset, placed by the operator's ranking */
+  aaAbsent?: AbsentModel[]
+  /** best first; models in one group are equal. Entries are globs on "provider/modelId". */
+  operatorRanking?: string[][]
   providerStatus?: { asOf?: string; providers?: Record<string, { state: string; note?: string }> }
   chainLength: number
   diversity: { minProviders: number }
@@ -155,6 +187,10 @@ export interface AAModel {
   speedBasis: SpeedBasis
   contextWindow: number | null
   releaseDate: string | null
+  /** true when coding was estimated from the intelligence index (see imputeCoding) */
+  codingImputed?: boolean
+  /** set on rows that are not measured AA data */
+  note?: string
 }
 
 /** One pi-runnable model (provider + base id) with every AA variant that maps to it. */
@@ -183,6 +219,8 @@ export interface ChainEntry {
   speedSeconds: number | null
   speedBasis: SpeedBasis
   requestsPer5h: number | null
+  /** true when the model is below the tier's quota floor and so cannot be the primary */
+  fallbackOnly?: boolean
   /** set on free-model entries placed by policy: where the quality figure came from */
   freeSource?: string
   availableUntil?: string
@@ -283,6 +321,9 @@ export function validateConfig(config: Config): string[] {
   if (typeof weight !== "number" || !(weight > 0)) {
     errors.push("cost.subscriptionWeight must be a number > 0 (never 0: a subscription model is cheap, not free)")
   }
+  for (const [provider, rule] of Object.entries(config.cost?.providers ?? {})) {
+    if (rule.weight != null && !(rule.weight > 0)) errors.push(`cost.providers.${provider}.weight must be > 0`)
+  }
   if (!config.tiers || Object.keys(config.tiers).length === 0) errors.push("tiers must be non-empty")
   for (const [name, tier] of Object.entries(config.tiers ?? {})) {
     if (!Array.isArray(tier.rankBy) || tier.rankBy.length === 0) {
@@ -292,6 +333,9 @@ export function validateConfig(config: Config): string[] {
       if (!["capability", "cost", "capabilityPerCost", "speed"].includes(key)) {
         errors.push(`tiers.${name}.rankBy has unknown key "${key}"`)
       }
+    }
+    if (tier.maxCapabilityRatio != null && !(tier.maxCapabilityRatio > 0 && tier.maxCapabilityRatio <= 1)) {
+      errors.push(`tiers.${name}.maxCapabilityRatio must be in (0, 1]`)
     }
     if (tier.minCapabilityRatio != null && (tier.minCapabilityRatio < 0 || tier.minCapabilityRatio > 1)) {
       errors.push(`tiers.${name}.minCapabilityRatio must be between 0 and 1`)
@@ -347,7 +391,10 @@ function billingFor(config: Config, provider: string): Billing {
 /** Effective cost used for ranking: raw cost scaled down for subscription providers. */
 export function effectiveCost(config: Config, cost: number | null, provider: string): number | null {
   if (cost == null) return null
-  const factor = billingFor(config, provider) === "subscription" ? config.cost.subscriptionWeight : 1
+  const factor =
+    billingFor(config, provider) === "subscription"
+      ? (config.cost.providers?.[provider]?.weight ?? config.cost.subscriptionWeight)
+      : 1
   return cost * factor
 }
 
@@ -462,8 +509,12 @@ export function normalizeName(raw: string): string {
 /** Effort marker from a name parenthetical, e.g. "GPT-6 Sol (high)" -> "high". */
 export function parseEffort(name: string): Effort | null {
   for (const match of name.matchAll(/\(([^)]*)\)/g)) {
-    const word = match[1].trim().toLowerCase()
-    if (EFFORT_WORDS[word]) return EFFORT_WORDS[word]
+    const text = match[1].trim().toLowerCase()
+    if (EFFORT_WORDS[text]) return EFFORT_WORDS[text]
+    // descriptive parentheticals: "(Adaptive Reasoning, Max Effort, Default Fallback)"
+    if (/\bnon[- ]?reasoning\b/.test(text)) return "off"
+    const effort = /\b(max|xhigh|high|medium|low|minimal)\s+effort\b/.exec(text)
+    if (effort) return EFFORT_WORDS[effort[1]]
   }
   return null
 }
@@ -544,6 +595,7 @@ export function normalizeAAModels(payload: unknown, weights: Record<string, numb
       ? (dig(payload, "data") as unknown[])
       : []
   const models: AAModel[] = []
+  const evals: (Record<string, unknown> | undefined)[] = []
   for (const raw of rawRows) {
     if (!raw || typeof raw !== "object") continue
     const row = raw as Record<string, unknown>
@@ -575,8 +627,89 @@ export function normalizeAAModels(payload: unknown, weights: Record<string, numb
       contextWindow: num(row.context_window_tokens),
       releaseDate: typeof row.release_date === "string" ? row.release_date : null,
     })
+    evals.push(evaluations as Record<string, unknown> | undefined)
   }
+  imputeCoding(models, evals, weights)
   return models
+}
+
+/** Minimum rows carrying both indices before a coding estimate is trusted. */
+const MIN_IMPUTE_ROWS = 8
+
+/**
+ * The free endpoint omits the coding index for most rows. A capability blend that silently
+ * drops coding for those rows is on a different scale than rows that have it, so estimate the
+ * missing coding index with an ordinary least-squares fit of coding on intelligence over the
+ * rows that carry both (minus one residual standard deviation, clamped to the observed range),
+ * and flag every estimated row.
+ */
+export function imputeCoding(
+  models: AAModel[],
+  evals: (Record<string, unknown> | undefined)[],
+  weights: Record<string, number>,
+): void {
+  const pairs = models.filter((m) => m.codingIndex != null && m.intelligenceIndex != null)
+  if (pairs.length < MIN_IMPUTE_ROWS) return
+  const n = pairs.length
+  const mx = pairs.reduce((t, m) => t + m.intelligenceIndex!, 0) / n
+  const my = pairs.reduce((t, m) => t + m.codingIndex!, 0) / n
+  const sxx = pairs.reduce((t, m) => t + (m.intelligenceIndex! - mx) ** 2, 0)
+  if (sxx === 0) return
+  const slope = pairs.reduce((t, m) => t + (m.intelligenceIndex! - mx) * (m.codingIndex! - my), 0) / sxx
+  const intercept = my - slope * mx
+  const residuals = pairs.map((m) => m.codingIndex! - (slope * m.intelligenceIndex! + intercept))
+  const sd = Math.sqrt(residuals.reduce((t, r) => t + r * r, 0) / Math.max(1, n - 2))
+  const codings = pairs.map((m) => m.codingIndex!)
+  const [lo, hi] = [Math.min(...codings), Math.max(...codings)]
+  models.forEach((m, i) => {
+    if (m.codingIndex != null || m.intelligenceIndex == null) return
+    // one standard error below the fit, inside the observed range: an unmeasured model must not
+    // out-rank a measured one on an extrapolation
+    const estimate = Math.min(hi, Math.max(lo, slope * m.intelligenceIndex + intercept - sd))
+    m.codingIndex = estimate
+    m.codingImputed = true
+    m.capability = computeCapability(
+      { ...(evals[i] ?? {}), artificial_analysis_coding_index: estimate },
+      weights,
+    )
+  })
+}
+
+/** Add rows for ranked models AA does not carry, placed between two known models by capability. */
+export function injectAbsentModels(models: AAModel[], config: Config): AAModel[] {
+  const out = [...models]
+  const best = (key: string) => {
+    const values = models.filter((m) => m.baseKey === key && m.capability != null).map((m) => m.capability!)
+    return values.length > 0 ? Math.max(...values) : null
+  }
+  for (const absent of config.aaAbsent ?? []) {
+    const baseKey = normalizeName(absent.name)
+    if (models.some((m) => m.baseKey === baseKey)) continue // AA has it: measured data wins
+    const upper = best(absent.between[0])
+    const lower = best(absent.between[1])
+    if (upper == null || lower == null) continue
+    out.push({
+      slug: `absent-${baseKey}`,
+      name: absent.name,
+      baseKey,
+      baseLabel: absent.name,
+      effort: null,
+      creator: null,
+      intelligenceIndex: null,
+      codingIndex: null,
+      agenticIndex: null,
+      softwareEngineeringIndex: null,
+      capability: upper + (lower - upper) * (absent.fraction ?? 0.5),
+      cost: null,
+      costBasis: "unknown",
+      speedSeconds: null,
+      speedBasis: "unknown",
+      contextWindow: null,
+      releaseDate: null,
+      note: `capability inferred ${Math.round((absent.fraction ?? 0.5) * 100)}% of the way from ${absent.between[0]} down to ${absent.between[1]} (${absent.source})`,
+    })
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -706,14 +839,17 @@ interface Scored {
   diversitySwap?: boolean
 }
 
-function compareKey(a: Scored, b: Scored, key: RankKey): number {
+function compareKey(a: Scored, b: Scored, key: RankKey, bucket = 0): number {
   const entryA = a.entry
   const entryB = b.entry
   switch (key) {
     case "capability": {
       const x = entryA.capability ?? -Infinity
       const y = entryB.capability ?? -Infinity
-      return y === y && x === x ? y - x : 0
+      if (bucket > 0 && Number.isFinite(x) && Number.isFinite(y)) {
+        return Math.round(y / bucket) - Math.round(x / bucket)
+      }
+      return y === x ? 0 : y - x
     }
     case "cost": {
       const x = entryA.effectiveCost
@@ -769,13 +905,19 @@ function preferIndex(s: Scored, prefer: string[]): number {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index
 }
 
-export function compareScored(a: Scored, b: Scored, rankBy: RankKey[], prefer: string[] = []): number {
+export function compareScored(
+  a: Scored,
+  b: Scored,
+  rankBy: RankKey[],
+  prefer: string[] = [],
+  bucket = 0,
+): number {
   if (prefer.length > 0) {
     const preferred = preferIndex(a, prefer) - preferIndex(b, prefer)
     if (preferred !== 0) return preferred
   }
   for (const key of rankBy) {
-    const cmp = compareKey(a, b, key)
+    const cmp = compareKey(a, b, key, bucket)
     if (cmp !== 0) return cmp
   }
   // deterministic tail: capability desc, then pi id asc
@@ -821,16 +963,25 @@ export function selectTier(
     return { candidate, entry, variant: model, variantFrom: from, rank: 0 }
   })
 
-  let pool = scored.filter(
-    (s) => !reserved.has(identity(config, s.candidate, s.variant)) && passesQuota(s, quotaFloor),
-  )
+  let pool = scored.filter((s) => !reserved.has(identity(config, s.candidate, s.variant)))
+  if (tierConfig.maxCapabilityRatio != null) {
+    const overall = Math.max(
+      ...scored.filter((s) => passesQuota(s, quotaFloor)).map((s) => s.entry.capability ?? -Infinity),
+    )
+    if (Number.isFinite(overall)) {
+      const ceiling = tierConfig.maxCapabilityRatio * overall
+      pool = pool.filter((s) => s.entry.capability == null || s.entry.capability <= ceiling)
+    }
+  }
   const researchTier = tierConfig.axis === "context-cost"
   if (researchTier) {
     const min = config.research?.minContextTokens ?? 0
     pool = pool.filter((s) => (s.candidate.contextTokens ?? 0) >= min)
   }
   if (tierConfig.minCapabilityRatio != null) {
-    const best = Math.max(...pool.map((s) => s.entry.capability ?? -Infinity))
+    // the bar is the best model that may actually be primary, not a sub-quota outlier
+    const eligible = pool.filter((s) => passesQuota(s, quotaFloor))
+    const best = Math.max(...(eligible.length > 0 ? eligible : pool).map((s) => s.entry.capability ?? -Infinity))
     if (Number.isFinite(best)) {
       const floor = tierConfig.minCapabilityRatio * best
       pool = pool.filter((s) => s.entry.capability != null && s.entry.capability >= floor)
@@ -838,7 +989,13 @@ export function selectTier(
   }
 
   const prefer = researchTier ? (config.research?.prefer ?? []) : []
-  const ordered = [...pool].sort((a, b) => compareScored(a, b, tierConfig.rankBy, prefer))
+  const ordered = [...pool].sort((a, b) =>
+    compareScored(a, b, tierConfig.rankBy, prefer, tierConfig.capabilityBucket ?? 0),
+  )
+  // a model under the quota floor may follow the primary but never be it
+  const primaryAt = ordered.findIndex((s) => passesQuota(s, quotaFloor))
+  if (primaryAt > 0) ordered.unshift(...ordered.splice(primaryAt, 1))
+  for (const s of ordered) s.entry.fallbackOnly = !passesQuota(s, quotaFloor)
   ordered.forEach((s, i) => (s.rank = i))
   const rule = tierConfig.rankBy.map((k) => RANK_LABELS[k]).join(", then ")
   const floors: string[] = []
@@ -854,9 +1011,15 @@ export function selectTier(
   for (const s of chain) {
     const flags: string[] = []
     if (s.entry.costBasis !== "per-task") flags.push(`cost from ${s.entry.costBasis}`)
-    if (s.entry.billing === "subscription") flags.push(`subscription cost x${config.cost.subscriptionWeight}`)
+    if (s.entry.billing === "subscription") {
+      flags.push(`subscription cost x${config.cost.providers?.[s.entry.provider]?.weight ?? config.cost.subscriptionWeight}`)
+    }
     if (s.entry.requestsPer5h == null) flags.push("quota unknown")
-    else if (quotaFloor > 0) flags.push(`${formatRequests(s.entry.requestsPer5h)} req/5h`)
+    else if (s.entry.fallbackOnly) {
+      flags.push(`fallback only: ${formatRequests(s.entry.requestsPer5h)} req/5h < ${quotaFloor}`)
+    } else if (quotaFloor > 0) flags.push(`${formatRequests(s.entry.requestsPer5h)} req/5h`)
+    if (s.variant.note) flags.push(s.variant.note)
+    if (s.variant.codingImputed) flags.push("coding index estimated from intelligence")
     if (s.variantFrom !== tierConfig.thinking) flags.push(`metrics from ${s.variantFrom} variant`)
     if (s.entry.speedBasis === "throughput-inverse") flags.push("speed estimated from throughput")
     if (s.diversitySwap) flags.push("diversity swap-in")
@@ -1274,9 +1437,41 @@ export function formatJson(chains: TierChain[], meta: MetaOutput): JsonOutput {
   return out as JsonOutput
 }
 
+/**
+ * Ordering violations against config.operatorRanking: one warning per pair of ranked models a
+ * chain puts in the opposite order to the operator's ranking. Unranked models are ignored, and so
+ * are the operator's pinned research preferences.
+ */
+export function rankingWarnings(chains: TierChain[], config: Config): string[] {
+  const groups = config.operatorRanking ?? []
+  if (groups.length === 0) return []
+  const rankOf = (e: ChainEntry): number => {
+    const id = `${e.provider}/${e.modelId}`
+    return groups.findIndex((group) => group.some((pattern) => globMatch(pattern, id)))
+  }
+  const warnings: string[] = []
+  for (const chain of chains) {
+    const ranked = chain.entries
+      .filter((e) => !e.reason.startsWith("operator preference"))
+      .map((e) => ({ e, rank: rankOf(e) }))
+      .filter((x) => x.rank >= 0)
+    for (let i = 0; i < ranked.length; i++) {
+      for (let j = i + 1; j < ranked.length; j++) {
+        if (ranked[i].rank > ranked[j].rank) {
+          warnings.push(
+            `ranking: ${chain.tier} puts ${ranked[i].e.piId} before ${ranked[j].e.piId}, ` +
+              `but the operator ranks ${ranked[j].e.modelId} above ${ranked[i].e.modelId}`,
+          )
+        }
+      }
+    }
+  }
+  return warnings
+}
+
 /** pi-pinball models array for one tier: [{ provider, id, thinking? }] (thinking is advisory). */
-export function formatPinball(chain: TierChain): PinballEntry[] {
-  return chain.entries.map((e) => {
+export function formatPinball(chain: TierChain, skipProviders: Set<string> = new Set()): PinballEntry[] {
+  return chain.entries.filter((e) => !skipProviders.has(e.provider)).map((e) => {
     const entry: PinballEntry = { provider: e.provider, id: e.modelId }
     if (e.thinking) entry.thinking = e.thinking
     return entry
@@ -1285,7 +1480,14 @@ export function formatPinball(chain: TierChain): PinballEntry[] {
 
 export function renderDefaultsYaml(
   chains: TierChain[],
-  meta: { generatedAt: string; dataTimestamp: string | null; dataKind: string; command: string },
+  meta: {
+    generatedAt: string
+    dataTimestamp: string | null
+    dataKind: string
+    command: string
+    /** provider -> harness prefix; providers not listed run in pi */
+    harnesses?: Record<string, string>
+  },
 ): string {
   const lines = [
     "# GENERATED FILE — DO NOT EDIT BY HAND.",
@@ -1295,7 +1497,8 @@ export function renderDefaultsYaml(
     `# Regenerate with: ${meta.command}`,
     "#",
     "# One ordered failover chain per tier, cheapest-and-goodest first, in the",
-    "# harness:model style of the team-lead routing section: pi:<provider>/<model>[:<thinking>].",
+    "# harness:model style of the team-lead routing section: pi:<provider>/<model>[:<thinking>],",
+    "# claude:<model> for Claude Code models.",
     "",
   ]
   for (const chain of chains) {
@@ -1304,7 +1507,10 @@ export function renderDefaultsYaml(
     if (chain.entries.length === 0) {
       lines.push("  []")
     } else {
-      for (const entry of chain.entries) lines.push(`  - pi:${entry.piId}`)
+      for (const entry of chain.entries) {
+        const harness = meta.harnesses?.[entry.provider]
+        lines.push(harness ? `  - ${harness}:${entry.modelId}` : `  - pi:${entry.piId}`)
+      }
     }
     lines.push("")
   }
@@ -1361,11 +1567,13 @@ async function main(): Promise<void> {
 
   const config = loadConfig(args.config)
   const dataset = await loadAADataset(config, { offline: args.offline, refresh: args.refresh })
-  const piModels = await loadPiModels(args.piList)
-  const { candidates, unmapped, blocked } = buildCandidates(dataset.models, piModels, config)
+  const piModels = [...(await loadPiModels(args.piList)), ...(config.extraModels ?? [])]
+  const models = injectAbsentModels(dataset.models, config)
+  const { candidates, unmapped, blocked } = buildCandidates(models, piModels, config)
   const { free, warnings: freeWarnings } = resolveFreeModels(config, piModels)
   const { pinned, warnings: pinnedWarnings } = resolvePinned(config, piModels, candidates)
   const { chains } = buildTiers(candidates, config, free, pinned)
+  const orderWarnings = rankingWarnings(chains, config)
 
   const meta = {
     dataKind: dataset.kind,
@@ -1376,7 +1584,7 @@ async function main(): Promise<void> {
     unmapped: unmapped.length,
     unmappedModels: unmapped,
     blockedModels: blocked,
-    warnings: [...dataset.warnings, ...freeWarnings, ...pinnedWarnings],
+    warnings: [...dataset.warnings, ...freeWarnings, ...pinnedWarnings, ...orderWarnings],
     providerStatus: config.providerStatus,
   }
 
@@ -1387,7 +1595,7 @@ async function main(): Promise<void> {
         `unknown tier "${args.pinball}"; known tiers: ${chains.map((c) => c.tier).join(", ")}`,
       )
     }
-    console.log(JSON.stringify(formatPinball(chain), null, 2))
+    console.log(JSON.stringify(formatPinball(chain, new Set(Object.keys(config.harnesses ?? {}))), null, 2))
     return
   }
 
@@ -1405,6 +1613,7 @@ async function main(): Promise<void> {
       dataTimestamp: dataset.timestamp,
       dataKind: dataset.kind,
       command: "bun --env-file ~/work/.env tools/model-tiers/model-tiers.ts --write-defaults",
+      harnesses: config.harnesses,
     })
     if (!existsSync(dirname(target))) throw new Error(`no such directory: ${dirname(target)}`)
     await Bun.write(target, yaml)

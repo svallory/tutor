@@ -4,7 +4,13 @@ import {
   buildCandidates,
   buildTiers,
   effectiveCost,
+  imputeCoding,
+  injectAbsentModels,
   normalizeAAModels,
+  parseEffort,
+  rankingWarnings,
+  renderDefaultsYaml,
+  formatPinball,
   resolvePinned,
   validateConfig,
   valuePerCost,
@@ -311,10 +317,25 @@ describe("quota floors", () => {
     },
   })
 
-  test("a model under 1000 requests/5h can lead cto but not dev", () => {
+  test("a model under 1000 requests/5h can be cto's primary but only a fallback in dev", () => {
     const { chains } = buildTiers(candidatesOf(rows, piModels, config), config)
     expect(ids(chains.find((c) => c.tier === "cto")!.entries)).toEqual(["opencode-go/rare:high"])
-    expect(ids(chains.find((c) => c.tier === "dev")!.entries)).toEqual(["opencode-go/plenty:medium"])
+    const dev = chains.find((c) => c.tier === "dev")!
+    // rare is more capable but sits under the 1000 floor: plenty leads, rare follows
+    expect(ids(dev.entries)).toEqual(["opencode-go/plenty:medium", "opencode-go/rare:medium"])
+    expect(dev.entries[0].fallbackOnly).toBe(false)
+    expect(dev.entries[1].fallbackOnly).toBe(true)
+    expect(dev.entries[1].reason).toContain("fallback only: 220 req/5h < 1000")
+  })
+
+  test("with no eligible primary the chain keeps its ranking and flags every entry", () => {
+    const low = baseConfig({
+      escalation: { allow: true, scope: "model" },
+      quota: { tiers: { dev: 1000 }, providers: { "opencode-go": { models: { rare: { requests_per_5h: 5 }, plenty: { requests_per_5h: 6 } } } } },
+    })
+    const dev = buildTiers(candidatesOf(rows, piModels, low), low).chains.find((c) => c.tier === "dev")!
+    expect(ids(dev.entries)).toEqual(["opencode-go/rare:medium", "opencode-go/plenty:medium"])
+    expect(dev.entries.every((e) => e.fallbackOnly)).toBe(true)
   })
 
   test("a documented cap is reported in the reason", () => {
@@ -446,5 +467,236 @@ describe("research.prefer without AA data", () => {
     const { pinned } = resolvePinned(cfg, piModels, candidates)
     const chain = buildTiers(candidates, cfg, [], pinned).chains[0]
     expect(ids(chain.entries)).toEqual(["google/gemini-3.8-flash"])
+  })
+})
+
+describe("round 2: capability buckets", () => {
+  const rows = [
+    aaRow("Apex (max)", "apex", { coding: 100, intelligence: 100, costPerTask: 9 }),
+    aaRow("Better (max)", "better", { coding: 90, intelligence: 90, costPerTask: 8 }),
+    aaRow("Frugal (max)", "frugal", { coding: 89, intelligence: 89, costPerTask: 0.1 }),
+    aaRow("Weaker (max)", "weaker", { coding: 80, intelligence: 80, costPerTask: 0.01 }),
+  ]
+  const pis = [pi("p0", "apex"), pi("p1", "better"), pi("p2", "frugal"), pi("p3", "weaker")]
+  const tiers = {
+    cto: { minCapabilityRatio: 0.99, rankBy: ["capability"], thinking: "high" },
+    lead: { minCapabilityRatio: 0.7, rankBy: ["capability", "cost"], thinking: "high", capabilityBucket: 2 },
+  } as Config["tiers"]
+
+  test("within a bucket cost breaks the tie; outside it capability wins over cost", () => {
+    const config = baseConfig({ tiers })
+    const lead = buildTiers(candidatesOf(rows, pis, config), config).chains.find((c) => c.tier === "lead")!
+    // better (90) and frugal (89) share a bucket -> cheaper frugal first; weaker is cheapest but a bucket down
+    expect(ids(lead.entries)).toEqual(["p2/frugal:high", "p1/better:high", "p3/weaker:high"])
+  })
+
+  test("without a bucket the raw capability decides", () => {
+    const config = baseConfig({ tiers: { ...tiers, lead: { ...tiers.lead, capabilityBucket: 0 } } })
+    const lead = buildTiers(candidatesOf(rows, pis, config), config).chains.find((c) => c.tier === "lead")!
+    expect(ids(lead.entries)).toEqual(["p1/better:high", "p2/frugal:high", "p3/weaker:high"])
+  })
+})
+
+describe("round 2: ceiling for top models", () => {
+  test("maxCapabilityRatio keeps the overall best out of a lower tier even when never a top slot", () => {
+    const rows = [
+      aaRow("Apex (max)", "apex", { coding: 100, intelligence: 100, costPerTask: 9 }),
+      aaRow("Ace (max)", "ace", { coding: 95, intelligence: 95, costPerTask: 9 }),
+      aaRow("Mid (max)", "mid", { coding: 80, intelligence: 80, costPerTask: 1 }),
+    ]
+    const config = baseConfig({
+      tiers: {
+        cto: { minCapabilityRatio: 0.99, rankBy: ["capability"], thinking: "high" },
+        dev: { minCapabilityRatio: 0.7, maxCapabilityRatio: 0.9, rankBy: ["capability"], thinking: "medium" },
+      },
+    })
+    const dev = buildTiers(candidatesOf(rows, [pi("p0", "apex"), pi("p1", "ace"), pi("p2", "mid")], config), config)
+      .chains.find((c) => c.tier === "dev")!
+    expect(ids(dev.entries)).toEqual(["p2/mid:medium"])
+  })
+
+  test("an out-of-range ceiling is rejected", () => {
+    const config = baseConfig()
+    config.tiers.dev.maxCapabilityRatio = 1.5
+    expect(validateConfig(config).join(" ")).toContain("maxCapabilityRatio")
+  })
+})
+
+describe("round 2: provider cost weight", () => {
+  test("a provider weight overrides the subscription weight and stays positive", () => {
+    const config = baseConfig({
+      cost: { subscriptionWeight: 0.25, defaultBilling: "metered", providers: { claude: { billing: "subscription", weight: 0.9 }, "opencode-go": { billing: "subscription" } } },
+    })
+    expect(effectiveCost(config, 10, "claude")).toBeCloseTo(9)
+    expect(effectiveCost(config, 10, "opencode-go")).toBeCloseTo(2.5)
+    config.cost.providers.claude.weight = 0
+    expect(validateConfig(config).join(" ")).toContain("cost.providers.claude.weight")
+  })
+})
+
+describe("round 2: effort in descriptive names", () => {
+  test("reads the effort out of AA's long parentheticals", () => {
+    expect(parseEffort("Claude Opus 5.5 (Adaptive Reasoning, Max Effort, Default Fallback)")).toBe("max")
+    expect(parseEffort("Claude Sonnet 5.5 (Adaptive Reasoning, Medium Effort, Default Fallback)")).toBe("medium")
+    expect(parseEffort("DeepSeek V4 Flash 0731 (Reasoning, Max Effort)")).toBe("max")
+    expect(parseEffort("Claude Opus 4.7 (Non-reasoning, High Effort)")).toBe("off")
+    expect(parseEffort("Some Model (Preview)")).toBeNull()
+  })
+})
+
+describe("round 2: coding index estimation", () => {
+  // eight measured rows on the line coding = 20 + intelligence, +-1 alternating noise
+  const measured = Array.from({ length: 8 }, (_, i) =>
+    aaRow(`M${i} (max)`, `m${i}`, { intelligence: 20 + i * 5, coding: 40 + i * 5 + (i % 2 ? 1 : -1) }),
+  )
+
+  test("estimates a missing coding index, flags it, and stays below the fit", () => {
+    const [target] = normalizeAAModels([...measured, aaRow("Bare (max)", "bare", { intelligence: 35 })].slice(-1), { coding: 0.6, intelligence: 0.4 })
+    expect(target.codingIndex).toBeNull() // too few pairs on its own: untouched
+    const all = normalizeAAModels([...measured, aaRow("Bare (max)", "bare", { intelligence: 35 })], { coding: 0.6, intelligence: 0.4 })
+    const bare = all.find((m) => m.slug === "bare")!
+    expect(bare.codingImputed).toBe(true)
+    expect(bare.codingIndex!).toBeLessThan(55) // line says 55; one SD is subtracted
+    expect(bare.codingIndex!).toBeGreaterThan(50)
+    expect(bare.capability).toBeCloseTo(0.6 * bare.codingIndex! + 0.4 * 35)
+    expect(all.find((m) => m.slug === "m0")!.codingImputed).toBeUndefined()
+  })
+
+  test("is clamped to the observed coding range instead of extrapolating", () => {
+    const all = normalizeAAModels([...measured, aaRow("Huge (max)", "huge", { intelligence: 200 })], { coding: 0.6, intelligence: 0.4 })
+    const observedMax = Math.max(...all.filter((m) => !m.codingImputed).map((m) => m.codingIndex!))
+    expect(all.find((m) => m.slug === "huge")!.codingIndex).toBe(observedMax)
+  })
+
+  test("fewer than eight measured pairs means no estimate at all", () => {
+    const few = normalizeAAModels([...measured.slice(0, 7), aaRow("Bare (max)", "bare", { intelligence: 35 })], { coding: 0.6, intelligence: 0.4 })
+    const bare = few.find((m) => m.slug === "bare")!
+    expect(bare.codingIndex).toBeNull()
+    expect(bare.capability).toBe(35)
+  })
+
+  test("a row with neither index stays null", () => {
+    const models = normalizeAAModels([...measured, aaRow("Blank (max)", "blank")], { coding: 0.6, intelligence: 0.4 })
+    expect(models.find((m) => m.slug === "blank")!.capability).toBeNull()
+  })
+
+  test("identical intelligence values cannot be fitted", () => {
+    const flat = Array.from({ length: 9 }, (_, i) => aaRow(`F${i} (max)`, `f${i}`, { intelligence: 30, coding: 40 + i }))
+    const out = normalizeAAModels([...flat, aaRow("Bare (max)", "bare", { intelligence: 30 })], { coding: 0.6, intelligence: 0.4 })
+    expect(out.find((m) => m.slug === "bare")!.codingIndex).toBeNull()
+  })
+})
+
+describe("round 2: models AA does not carry", () => {
+  const rows = [
+    aaRow("Top (max)", "top", { coding: 100, intelligence: 100, costPerTask: 5 }),
+    aaRow("Bottom (max)", "bottom", { coding: 60, intelligence: 60, costPerTask: 5 }),
+  ]
+  const config = baseConfig({
+    aaAbsent: [{ name: "Ghost", between: ["top", "bottom"], fraction: 0.25, source: "operator ranking" }],
+    aliases: { ghost: ["p9/ghost"] },
+  })
+
+  test("places the model a fraction of the way down between its neighbours, with a note", () => {
+    const models = injectAbsentModels(normalizeAAModels(rows, config.capability.weights), config)
+    const ghost = models.find((m) => m.baseKey === "ghost")!
+    expect(ghost.capability).toBeCloseTo(90)
+    expect(ghost.note).toContain("25% of the way")
+    expect(ghost.costBasis).toBe("unknown")
+  })
+
+  test("defaults to the midpoint", () => {
+    const cfg = baseConfig({ aaAbsent: [{ name: "Ghost", between: ["top", "bottom"], source: "s" }] })
+    const ghost = injectAbsentModels(normalizeAAModels(rows, cfg.capability.weights), cfg).find((m) => m.baseKey === "ghost")!
+    expect(ghost.capability).toBeCloseTo(80)
+  })
+
+  test("measured AA data wins, and a missing neighbour skips the injection", () => {
+    const withReal = normalizeAAModels([...rows, aaRow("Ghost (max)", "ghost", { coding: 10, intelligence: 10 })], config.capability.weights)
+    expect(injectAbsentModels(withReal, config)).toHaveLength(3)
+    const lonely = normalizeAAModels(rows.slice(0, 1), config.capability.weights)
+    expect(injectAbsentModels(lonely, config)).toHaveLength(1)
+  })
+
+  test("the injected model maps to its pi ids and competes, its note reaching the chain reason", () => {
+    const models = injectAbsentModels(normalizeAAModels(rows, config.capability.weights), config)
+    const { candidates } = buildCandidates(models, [pi("p0", "top"), pi("p1", "bottom"), pi("p9", "ghost")], config)
+    // ghost is 90% of best: under lead's 92% floor, inside senior's 85%
+    const lead = buildTiers(candidates, { ...config, escalation: { allow: true, scope: "model" } }).chains.find((c) => c.tier === "senior")!
+    const ghost = lead.entries.find((e) => e.modelId === "ghost")!
+    expect(ghost).toBeDefined()
+    expect(ghost.reason).toContain("capability inferred")
+  })
+})
+
+describe("round 2: operator ranking check", () => {
+  const config = baseConfig({
+    operatorRanking: [["*/astra", "claude/opus"], ["*/kimi", "kimi-coding/k3*"], ["*/sol"], ["google/gemini-*"]],
+  })
+  const entry = (provider: string, modelId: string, reason = "#1") =>
+    ({ piId: `${provider}/${modelId}`, provider, modelId, reason }) as ChainEntry
+  const chain = (tier: string, entries: ChainEntry[]) =>
+    ({ tier, rule: "", floor: "", entries, poolSize: 0, diversity: "ok", reserved: [] }) as never
+
+  test("a correctly ordered chain is silent", () => {
+    expect(rankingWarnings([chain("lead", [entry("a", "astra"), entry("b", "kimi"), entry("c", "sol")])], config)).toEqual([])
+  })
+
+  test("each inverted pair warns, naming tier and both models", () => {
+    const warnings = rankingWarnings([chain("dev", [entry("c", "sol"), entry("a", "astra"), entry("b", "kimi")])], config)
+    expect(warnings).toEqual([
+      "ranking: dev puts c/sol before a/astra, but the operator ranks astra above sol",
+      "ranking: dev puts c/sol before b/kimi, but the operator ranks kimi above sol",
+    ])
+  })
+
+  test("models in one group are equal, unranked models and provider variants of one model are ignored", () => {
+    const equal = chain("x", [entry("claude", "opus"), entry("a", "astra")])
+    const same = chain("y", [entry("kimi-coding", "k3"), entry("o", "kimi"), entry("kimi-coding", "k3-256k")])
+    const unranked = chain("z", [entry("g", "mystery"), entry("a", "astra")])
+    expect(rankingWarnings([equal, same, unranked], config)).toEqual([])
+  })
+
+  test("a ranked model behind a lower group is flagged even with gemini last", () => {
+    const warnings = rankingWarnings([chain("r", [entry("google", "gemini-3.8-flash"), entry("c", "sol")])], config)
+    expect(warnings).toHaveLength(1)
+  })
+
+  test("the operator's pinned research preference is exempt", () => {
+    const pinned = entry("google", "gemini-3.8-flash", "operator preference (research.prefer), pinned first")
+    expect(rankingWarnings([chain("research", [pinned, entry("c", "sol")])], config)).toEqual([])
+  })
+
+  test("no configured ranking means no warnings", () => {
+    expect(rankingWarnings([chain("x", [entry("c", "sol"), entry("a", "astra")])], baseConfig())).toEqual([])
+  })
+})
+
+describe("round 2: harness output", () => {
+  const chains = [
+    {
+      tier: "cto", rule: "capability", floor: "f", poolSize: 1, diversity: "ok", reserved: [],
+      entries: [
+        { piId: "claude/opus", provider: "claude", modelId: "opus", thinking: null },
+        { piId: "openai-codex/gpt-6-astra:high", provider: "openai-codex", modelId: "gpt-6-astra", thinking: "high" },
+      ],
+    },
+  ] as never
+  const meta = { generatedAt: "t", dataTimestamp: null, dataKind: "free", command: "c" }
+
+  test("claude entries render as claude:<model>, pi entries keep pi:provider/model:thinking", () => {
+    const yaml = renderDefaultsYaml(chains, { ...meta, harnesses: { claude: "claude" } })
+    expect(yaml).toContain("  - claude:opus\n")
+    expect(yaml).toContain("  - pi:openai-codex/gpt-6-astra:high\n")
+  })
+
+  test("without a harness map everything is pi", () => {
+    expect(renderDefaultsYaml(chains, meta)).toContain("  - pi:claude/opus")
+  })
+
+  test("pinball skips providers that pi cannot run", () => {
+    expect(formatPinball((chains as ReturnType<typeof Array>)[0], new Set(["claude"]))).toEqual([
+      { provider: "openai-codex", id: "gpt-6-astra", thinking: "high" },
+    ])
   })
 })

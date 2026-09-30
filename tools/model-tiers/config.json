@@ -41,6 +41,11 @@
       },
       "huggingface": {
         "billing": "metered"
+      },
+      "claude": {
+        "billing": "subscription",
+        "weight": 0.9,
+        "$comment": "Claude is the operator's scarcest provider: it is a subscription, but the discount is small (weight 0.9 instead of subscriptionWeight) so cost keeps counting."
       }
     }
   },
@@ -68,8 +73,8 @@
     "source": "operator plan limits, 2026-09",
     "tiers": {
       "cto": 0,
-      "lead": 0,
-      "senior": 0,
+      "lead": 1000,
+      "senior": 1000,
       "dev": 1000,
       "intern": 1000,
       "research": 1000
@@ -271,7 +276,7 @@
   "metricsFallback": "flagship",
   "tiers": {
     "cto": {
-      "minCapabilityRatio": 0.97,
+      "minCapabilityRatio": 0.95,
       "rankBy": [
         "capability"
       ],
@@ -283,22 +288,28 @@
         "capability",
         "cost"
       ],
-      "thinking": "high"
+      "thinking": "high",
+      "capabilityBucket": 2
     },
     "senior": {
       "minCapabilityRatio": 0.85,
       "rankBy": [
-        "capabilityPerCost"
+        "capability",
+        "cost"
       ],
-      "thinking": "high"
+      "thinking": "high",
+      "capabilityBucket": 2
     },
     "dev": {
       "minCapabilityRatio": 0.75,
       "rankBy": [
-        "capabilityPerCost",
+        "capability",
+        "cost",
         "speed"
       ],
-      "thinking": "medium"
+      "thinking": "medium",
+      "capabilityBucket": 4,
+      "maxCapabilityRatio": 0.9
     },
     "intern": {
       "minCapabilityRatio": 0.55,
@@ -306,7 +317,8 @@
         "cost",
         "speed"
       ],
-      "thinking": "low"
+      "thinking": "low",
+      "maxCapabilityRatio": 0.8
     },
     "research": {
       "axis": "context-cost",
@@ -335,6 +347,78 @@
     ],
     "kimik2thinking": [
       "huggingface/moonshotai/Kimi-K2-Thinking"
+    ],
+    "claudeopus55": [
+      "claude/opus"
+    ],
+    "claudesonnet55": [
+      "claude/sonnet"
+    ],
+    "claudehaiku45": [
+      "claude/haiku"
     ]
-  }
+  },
+  "harnesses": {
+    "claude": "claude"
+  },
+  "extraModels": [
+    {
+      "provider": "claude",
+      "id": "opus",
+      "contextTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "thinking": false,
+      "images": true
+    },
+    {
+      "provider": "claude",
+      "id": "sonnet",
+      "contextTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "thinking": false,
+      "images": true
+    },
+    {
+      "provider": "claude",
+      "id": "haiku",
+      "contextTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "thinking": false,
+      "images": true
+    }
+  ],
+  "aaAbsent": [
+    {
+      "name": "Kimi K3",
+      "between": [
+        "gpt6astra",
+        "gpt6sol"
+      ],
+      "source": "operator ranking; /free carries no Kimi K3 row",
+      "fraction": 0.15,
+      "$comment": "Judgment call: the operator ranks Kimi K3 second overall, directly under GPT-6 Astra / Claude Opus and above GPT-6 Sol, so it sits 15% of the way down from GPT-6 Astra to GPT-6 Sol. Tune `fraction`; a real AA row replaces this."
+    }
+  ],
+  "operatorRanking": [
+    [
+      "*/gpt-6-astra",
+      "claude/opus",
+      "claude/fable*"
+    ],
+    [
+      "*/kimi-k3",
+      "kimi-coding/k3*",
+      "huggingface/moonshotai/Kimi-K3"
+    ],
+    [
+      "*/gpt-6-sol",
+      "*/space-bunny-free"
+    ],
+    [
+      "*/gpt-5.6-sol"
+    ],
+    [
+      "google/gemini-*"
+    ]
+  ]
 }
