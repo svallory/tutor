@@ -218,7 +218,9 @@
       "availableUntil stays \"unknown\" until the provider announces an end date; the quota block marks these models 'unlimited (limited time)'."
     ],
     "availableUntil": "unknown",
-    "excludeTiers": [],
+    "excludeTiers": [
+      "intern"
+    ],
     "models": {
       "opencode-go/space-bunny-free": {
         "position": "first-fallback",
