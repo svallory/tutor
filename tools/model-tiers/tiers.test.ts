@@ -56,8 +56,8 @@ describe("tier thresholds", () => {
     expect(ids(lead.entries)).toEqual(["opencode-go/model-b:high", "opencode-go/model-c:high"])
   })
 
-  test("a model that tops no tier stays inside the 55% intern floor", () => {
-    // a/b/c/d top cto/lead/senior/dev and are reserved; e (50% of best, 55% floor of the pool left) is what is left
+  test("a model that tops no tier stays inside the 55% intern floor; one under it is out", () => {
+    // a/b/c top cto/lead/senior; d (60% of the overall best) clears intern's floor, e (50%) does not
     const more = [
       ...rows,
       aaRow("Model D (max)", "model-d", { coding: 60, intelligence: 60, costPerTask: 1 }),
@@ -66,7 +66,7 @@ describe("tier thresholds", () => {
     const pis = [...piModels, pi("google", "model-d"), pi("google", "model-e")]
     const { chains } = buildTiers(candidatesOf(more, pis, config), config)
     const intern = chains.find((c) => c.tier === "intern")!
-    expect(ids(intern.entries)).toEqual(["google/model-e:low"])
+    expect(ids(intern.entries)).toEqual(["google/model-d:low"])
   })
 
   test("a model that tops a higher tier is reserved from intern even inside its floor", () => {
@@ -653,8 +653,26 @@ describe("round 2: operator ranking check", () => {
   test("models in one group are equal, unranked models and provider variants of one model are ignored", () => {
     const equal = chain("x", [entry("claude", "opus"), entry("a", "astra")])
     const same = chain("y", [entry("kimi-coding", "k3"), entry("o", "kimi"), entry("kimi-coding", "k3-256k")])
-    const unranked = chain("z", [entry("g", "mystery"), entry("a", "astra")])
-    expect(rankingWarnings([equal, same, unranked], config)).toEqual([])
+    expect(rankingWarnings([equal, same], config)).toEqual([])
+  })
+
+  test("an unranked model warns once, however many chains carry it, and never breaks pair checks", () => {
+    const one = chain("z", [entry("a", "astra"), entry("g", "mystery")])
+    const two = chain("y", [entry("g", "mystery"), entry("a", "astra")])
+    const warnings = rankingWarnings([one, two], config)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("g/mystery (first seen in z)")
+    expect(warnings[0]).toContain("not in operatorRanking")
+  })
+
+  test("an unranked primary is named as such and a ranked model behind it is not misreported", () => {
+    const warnings = rankingWarnings([chain("lead", [entry("g", "mystery"), entry("a", "astra")])], config)
+    expect(warnings).toEqual([expect.stringContaining("as its primary")])
+  })
+
+  test("policy-placed free entries are exempt from every ranking check", () => {
+    const free = { ...entry("o", "bunny"), freeSource: "leaderboard" } as ChainEntry
+    expect(rankingWarnings([chain("lead", [free, entry("a", "astra")])], config)).toEqual([])
   })
 
   test("a ranked model behind a lower group is flagged even with gemini last", () => {
@@ -698,5 +716,70 @@ describe("round 2: harness output", () => {
     expect(formatPinball((chains as ReturnType<typeof Array>)[0], new Set(["claude"]))).toEqual([
       { provider: "openai-codex", id: "gpt-6-astra", thinking: "high" },
     ])
+  })
+})
+
+describe("round 4: one best for floor and ceiling", () => {
+  const rows = [
+    aaRow("Apex (max)", "apex", { coding: 100, intelligence: 100, costPerTask: 9 }),
+    aaRow("Ace (max)", "ace", { coding: 90, intelligence: 90, costPerTask: 9 }),
+    aaRow("Mid (max)", "mid", { coding: 50, intelligence: 50, costPerTask: 1 }),
+    aaRow("Low (max)", "low", { coding: 40, intelligence: 40, costPerTask: 1 }),
+  ]
+  const pis = [pi("p0", "apex"), pi("p1", "ace"), pi("p2", "mid"), pi("p3", "low")]
+  const config = baseConfig({
+    escalation: { allow: true, scope: "model" },
+    tiers: {
+      intern: { minCapabilityRatio: 0.55, maxCapabilityRatio: 0.8, rankBy: ["cost"], thinking: "low" },
+    },
+  })
+
+  test("the floor is a share of the overall best, not of what the ceiling left behind", () => {
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, pis, config)
+    const intern = buildTiers(candidates, config).chains[0]
+    // floor 0.55 * 100 = 55, ceiling 80: nothing between; the compounded floor (0.55 * 50 = 27.5) would admit "low"
+    expect(ids(intern.entries)).toEqual([])
+  })
+
+  test("both limits are advertised in the tier's floor text", () => {
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, pis, config)
+    expect(buildTiers(candidates, config).chains[0].floor).toBe("capability >= 55% of best + capability <= 80% of best")
+  })
+
+  test("a model inside the band is admitted", () => {
+    const more = [...rows, aaRow("Fit (max)", "fit", { coding: 70, intelligence: 70, costPerTask: 1 })]
+    const models = normalizeAAModels(more, config.capability.weights)
+    const { candidates } = buildCandidates(models, [...pis, pi("p4", "fit")], config)
+    expect(ids(buildTiers(candidates, config).chains[0].entries)).toEqual(["p4/fit:low"])
+  })
+})
+
+describe("round 4: unknown cost on a subscription", () => {
+  const rows = [
+    aaRow("Known (max)", "known", { coding: 90, intelligence: 90, costPerTask: 0.5 }),
+    aaRow("Unknown (max)", "unknown", { coding: 90, intelligence: 90 }),
+    aaRow("Unpriced (max)", "unpriced", { coding: 90, intelligence: 90 }),
+  ]
+  const pis = [pi("google", "known"), pi("kimi-coding", "unknown"), pi("google", "unpriced")]
+  const tiers = { dev: { minCapabilityRatio: 0.5, rankBy: ["capability", "cost"], thinking: "medium", capabilityBucket: 2 } } as Config["tiers"]
+  const cost = { subscriptionWeight: 0.25, defaultBilling: "metered", providers: { "kimi-coding": { billing: "subscription" } } } as Config["cost"]
+
+  test("ranks ahead of a known metered price, and a metered unknown stays last", () => {
+    const config = baseConfig({ tiers, cost, escalation: { allow: true, scope: "model" } })
+    const models = normalizeAAModels(rows, config.capability.weights)
+    const { candidates } = buildCandidates(models, pis, config)
+    const dev = buildTiers(candidates, config).chains[0]
+    expect(ids(dev.entries)).toEqual(["kimi-coding/unknown:medium", "google/known:medium", "google/unpriced:medium"])
+    expect(dev.entries[0].reason).toContain("cost unknown (subscription)")
+    expect(dev.entries[0].effectiveCost).toBeNull() // reported honestly, only the sort key moves
+  })
+
+  test("with no known metered price at all it sorts first without dividing by anything", () => {
+    const config = baseConfig({ tiers, cost, escalation: { allow: true, scope: "model" } })
+    const models = normalizeAAModels(rows.slice(1, 2), config.capability.weights)
+    const { candidates } = buildCandidates(models, [pi("kimi-coding", "unknown")], config)
+    expect(ids(buildTiers(candidates, config).chains[0].entries)).toEqual(["kimi-coding/unknown:medium"])
   })
 })

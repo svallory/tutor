@@ -225,19 +225,32 @@ describe("round 3: first fallback placed by operator ranking", () => {
     expect(names(cto)).toEqual(["alpha", "bravo", "bunny", "charlie", "delta", "paw"])
   })
 
-  test("goes first when no ranked model outranks it", () => {
+  test("never before the primary, even when no ranked model outranks it", () => {
     const config = { operatorRanking: [["*/bunny"], ["*/alpha"], ["*/bravo"]] }
     const cto = chainFor("cto", { ...config, tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } } })
-    expect(names(cto)[0]).toBe("bunny")
+    expect(names(cto)[0]).toBe("alpha")
+    expect(names(cto)[1]).toBe("bunny")
     expect(names(cto).at(-1)).toBe("paw")
   })
 
-  test("an unranked primary is ignored: without ranked models above, the free model is first", () => {
+  test("a free model is never the primary when a ranked one exists, whatever the ranking says", () => {
     const cto = chainFor("cto", {
       operatorRanking: [["*/bunny"]],
       tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
     })
-    expect(names(cto)[0]).toBe("bunny")
+    expect(names(cto)[0]).not.toBe("bunny")
+    expect(names(cto)[1]).toBe("bunny")
+  })
+
+  test("a tier whose only entries are free models reports that it reserves nothing", () => {
+    const config = baseConfig({
+      escalation: { allow: false, scope: "model" },
+      free: FREE,
+      tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
+    })
+    const { free } = resolveFreeModels(config, [pi("opencode-go", "bunny"), pi("opencode-go", "paw")])
+    const { warnings } = buildTiers([], config, free)
+    expect(warnings.join(" ")).toContain("reserves nothing against escalation")
   })
 
   test("without an operator ranking it still sits right after the primary", () => {
@@ -264,7 +277,7 @@ describe("round 3: first fallback placed by operator ranking", () => {
     const config = baseConfig({
       escalation: { allow: true, scope: "model" },
       free: FREE,
-      operatorRanking: ranking,
+      operatorRanking: [...ranking, ["*/delta"]],
       tiers: { cto: { minCapabilityRatio: 0.5, rankBy: ["capability"], thinking: "high" } },
       chainLength: 6,
     })

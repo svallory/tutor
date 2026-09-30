@@ -839,6 +839,8 @@ interface Scored {
   variantFrom: string
   rank: number
   diversitySwap?: boolean
+  /** cost used for ranking when it differs from entry.effectiveCost (unknown-cost subscriptions) */
+  sortCost?: number | null
 }
 
 function compareKey(a: Scored, b: Scored, key: RankKey, bucket = 0): number {
@@ -854,8 +856,8 @@ function compareKey(a: Scored, b: Scored, key: RankKey, bucket = 0): number {
       return y === x ? 0 : y - x
     }
     case "cost": {
-      const x = entryA.effectiveCost
-      const y = entryB.effectiveCost
+      const x = a.sortCost !== undefined ? a.sortCost : entryA.effectiveCost
+      const y = b.sortCost !== undefined ? b.sortCost : entryB.effectiveCost
       if (x == null && y == null) return 0
       if (x == null) return 1
       if (y == null) return -1
@@ -883,12 +885,6 @@ export function valuePerCost(entry: ChainEntry): number {
   if (entry.effectiveCost == null) return -1
   if (entry.effectiveCost <= 0) return Infinity
   return entry.capability / entry.effectiveCost
-}
-
-interface Scored {
-  candidate: Candidate
-  entry: ChainEntry
-  rank: number
 }
 
 export interface SelectOptions {
@@ -966,14 +962,14 @@ export function selectTier(
   })
 
   let pool = scored.filter((s) => !reserved.has(identity(config, s.candidate, s.variant)))
-  if (tierConfig.maxCapabilityRatio != null) {
-    const overall = Math.max(
-      ...scored.filter((s) => passesQuota(s, quotaFloor)).map((s) => s.entry.capability ?? -Infinity),
-    )
-    if (Number.isFinite(overall)) {
-      const ceiling = tierConfig.maxCapabilityRatio * overall
-      pool = pool.filter((s) => s.entry.capability == null || s.entry.capability <= ceiling)
-    }
+  // one bar for both ratios: the best model that may actually be primary, before any tier-local
+  // filtering (a ceiling applied first would shrink the pool and compound with the floor)
+  const overallBest = Math.max(
+    ...scored.filter((s) => passesQuota(s, quotaFloor)).map((s) => s.entry.capability ?? -Infinity),
+  )
+  if (tierConfig.maxCapabilityRatio != null && Number.isFinite(overallBest)) {
+    const ceiling = tierConfig.maxCapabilityRatio * overallBest
+    pool = pool.filter((s) => s.entry.capability == null || s.entry.capability <= ceiling)
   }
   const researchTier = tierConfig.axis === "context-cost"
   if (researchTier) {
@@ -981,11 +977,8 @@ export function selectTier(
     pool = pool.filter((s) => (s.candidate.contextTokens ?? 0) >= min)
   }
   if (tierConfig.minCapabilityRatio != null) {
-    // the bar is the best model that may actually be primary, not a sub-quota outlier
-    const eligible = pool.filter((s) => passesQuota(s, quotaFloor))
-    const best = Math.max(...(eligible.length > 0 ? eligible : pool).map((s) => s.entry.capability ?? -Infinity))
-    if (Number.isFinite(best)) {
-      const floor = tierConfig.minCapabilityRatio * best
+    if (Number.isFinite(overallBest)) {
+      const floor = tierConfig.minCapabilityRatio * overallBest
       const passing = pool.filter((s) => s.entry.capability != null && s.entry.capability >= floor)
       // the operator rates models in one ranking group as equals, so a model tied with a qualifier
       // qualifies too, even where estimated or measured capability puts it a little under the floor
@@ -994,6 +987,17 @@ export function selectTier(
       pool = pool.filter(
         (s) => passing.includes(s) || groups.has(operatorRank(config, s.entry.provider, s.entry.modelId)),
       )
+    }
+  }
+
+  // unknown cost on a subscription is plausibly cheaper than any metered price: rank it just ahead
+  // of the cheapest known metered cost instead of last
+  const meteredCosts = pool
+    .filter((s) => s.entry.billing === "metered" && s.entry.effectiveCost != null)
+    .map((s) => s.entry.effectiveCost!)
+  for (const s of pool) {
+    if (s.entry.effectiveCost == null && s.entry.billing === "subscription") {
+      s.sortCost = meteredCosts.length > 0 ? Math.min(...meteredCosts) * 0.999 : 0
     }
   }
 
@@ -1012,6 +1016,9 @@ export function selectTier(
   if (tierConfig.minCapabilityRatio != null) {
     floors.push(`capability >= ${Math.round(tierConfig.minCapabilityRatio * 100)}% of best`)
   }
+  if (tierConfig.maxCapabilityRatio != null) {
+    floors.push(`capability <= ${Math.round(tierConfig.maxCapabilityRatio * 100)}% of best`)
+  }
   const floorText = floors.join(" + ")
 
   const selected = ordered.slice(0, Math.max(0, config.chainLength - freeSlots))
@@ -1023,6 +1030,7 @@ export function selectTier(
     if (s.entry.billing === "subscription") {
       flags.push(`subscription cost x${config.cost.providers?.[s.entry.provider]?.weight ?? config.cost.subscriptionWeight}`)
     }
+    if (s.sortCost !== undefined) flags.push("cost unknown (subscription): ranked ahead of metered prices")
     if (s.entry.requestsPer5h == null) flags.push("quota unknown")
     else if (s.entry.fallbackOnly) {
       flags.push(`fallback only: ${formatRequests(s.entry.requestsPer5h)} req/5h < ${quotaFloor}`)
@@ -1112,9 +1120,9 @@ export function operatorRank(config: Config, provider: string, modelId: string):
 
 /**
  * Splice free fallbacks into a ranked chain. The first-fallback model goes right after the last
- * entry the operator ranking puts above it (first when none does; never ahead of `minIndex`
- * pinned entries); with no ranking for it, right after the primary. The last-resort model closes
- * the chain.
+ * entry the operator ranking puts above it, but never before the primary (a pinned entry, else
+ * the first ranked one); with no ranking for it, right after the primary. The last-resort model
+ * closes the chain. With no primary at all the free models are all there is; buildTiers warns.
  */
 function placeFree(
   ranked: ChainEntry[],
@@ -1132,16 +1140,16 @@ function placeFree(
   const last = at("last")
   if (first) {
     const own = operatorRank(config, first.provider, first.modelId)
-    let index = Math.min(minIndex + 1, chain.length)
+    // free models are fallbacks only: never before the primary (the entry at minIndex)
+    const earliest = minIndex > 0 ? minIndex : 1 // after the pinned entries, else after the ranked primary
+    let index = Math.min(earliest, chain.length)
     if (own >= 0) {
-      index = minIndex
       chain.forEach((e, i) => {
-        if (i >= minIndex && operatorRank(config, e.provider, e.modelId) !== -1 && operatorRank(config, e.provider, e.modelId) < own) {
-          index = i + 1
-        }
+        const rank = operatorRank(config, e.provider, e.modelId)
+        if (i >= minIndex && rank !== -1 && rank < own) index = Math.max(index, i + 1)
       })
     }
-    chain.splice(index, 0, first)
+    chain.splice(Math.min(index, chain.length), 0, first)
   }
   if (last) chain.push(last)
   return chain
@@ -1200,9 +1208,10 @@ export function buildTiers(
   config: Config,
   freeModels: FreeModel[] = [],
   pinnedModels: PiModel[] = [],
-): { chains: TierChain[]; reserved: Set<string> } {
+): { chains: TierChain[]; reserved: Set<string>; warnings: string[] } {
   const reserved = new Set<string>()
   const chains: TierChain[] = []
+  const warnings: string[] = []
   // free models are placed by policy; they must never also be ranked
   const freeIds = new Set(Object.keys(config.free?.models ?? {}))
   const candidates = allCandidates.filter((c) => !freeIds.has(`${c.provider}/${c.baseId}`))
@@ -1233,9 +1242,13 @@ export function buildTiers(
     )
     if (topModel) {
       for (const model of topModel.variants.values()) reserved.add(identity(config, topModel, model))
+    } else if (!top.reason.startsWith("operator preference")) {
+      warnings.push(
+        `${tier}: its primary ${top.piId} is not a ranked candidate (free or pinned), so the tier reserves nothing against escalation`,
+      )
     }
   }
-  return { chains, reserved }
+  return { chains, reserved, warnings }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1477,19 +1490,30 @@ export function formatJson(chains: TierChain[], meta: MetaOutput): JsonOutput {
 
 /**
  * Ordering violations against config.operatorRanking: one warning per pair of ranked models a
- * chain puts in the opposite order to the operator's ranking. Unranked models are ignored, and so
- * are the operator's pinned research preferences.
+ * chain puts in the opposite order to the operator's ranking, plus one per model
+ * that appears in a chain without a place in the ranking (its order cannot be checked). Policy-
+ * placed free models and the operator's pinned research preferences are exempt.
  */
 export function rankingWarnings(chains: TierChain[], config: Config): string[] {
   const groups = config.operatorRanking ?? []
   if (groups.length === 0) return []
   const rankOf = (e: ChainEntry): number => operatorRank(config, e.provider, e.modelId)
   const warnings: string[] = []
+  const unranked = new Set<string>()
   for (const chain of chains) {
     const ranked = chain.entries
-      .filter((e) => !e.reason.startsWith("operator preference"))
+      .filter((e) => !e.reason.startsWith("operator preference") && e.freeSource == null)
       .map((e) => ({ e, rank: rankOf(e) }))
-      .filter((x) => x.rank >= 0)
+    for (const x of ranked) {
+      if (x.rank < 0 && !unranked.has(x.e.modelId)) {
+        unranked.add(x.e.modelId)
+        warnings.push(
+          `ranking: ${x.e.piId} (first seen in ${chain.tier}${x === ranked[0] ? ", as its primary" : ""}) ` +
+            "is not in operatorRanking, so its order cannot be checked",
+        )
+      }
+    }
+    ranked.splice(0, ranked.length, ...ranked.filter((x) => x.rank >= 0))
     for (let i = 0; i < ranked.length; i++) {
       for (let j = i + 1; j < ranked.length; j++) {
         if (ranked[i].rank > ranked[j].rank) {
@@ -1594,9 +1618,16 @@ export function parseArgs(argv: string[]): Args {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  if (args.help || process.argv.length <= 2) {
-    const header = readFileSync(new URL(import.meta.url).pathname, "utf8").split("*/")[0] + "*/"
-    console.log(header.replace(/^\/\*\*?/, "").replace(/ \* ?/g, ""))
+  if (args.help) {
+    const source = readFileSync(new URL(import.meta.url).pathname, "utf8")
+    const header = source.slice(source.indexOf("/**") + 3, source.indexOf("*/"))
+    console.log(
+      header
+        .split("\n")
+        .map((line) => line.replace(/^ \* ?/, ""))
+        .join("\n")
+        .trim(),
+    )
     return
   }
 
@@ -1607,8 +1638,8 @@ async function main(): Promise<void> {
   const { candidates, unmapped, blocked } = buildCandidates(models, piModels, config)
   const { free, warnings: freeWarnings } = resolveFreeModels(config, piModels)
   const { pinned, warnings: pinnedWarnings } = resolvePinned(config, piModels, candidates)
-  const { chains } = buildTiers(candidates, config, free, pinned)
-  const orderWarnings = rankingWarnings(chains, config)
+  const { chains, warnings: tierWarnings } = buildTiers(candidates, config, free, pinned)
+  const orderWarnings = [...tierWarnings, ...rankingWarnings(chains, config)]
 
   const meta = {
     dataKind: dataset.kind,
