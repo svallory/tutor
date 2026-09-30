@@ -1,0 +1,340 @@
+{
+  "$comment": [
+    "Configuration for tools/model-tiers/model-tiers.ts (see the script header for usage).",
+    "Tiers are evaluated top-down in the key order of `tiers`; each tier's top slot is",
+    "reserved from lower tiers unless escalation.allow is true."
+  ],
+  "api": {
+    "baseUrl": "https://artificialanalysis.ai/api/v2",
+    "fullPath": "/language/models",
+    "freePath": "/language/models/free",
+    "cacheDir": "~/.cache/model-tiers",
+    "cacheTtlHours": 12
+  },
+  "capability": {
+    "$comment": "Capability = weighted blend of AA indices, renormalized over whatever the endpoint exposes. Weights need not sum to 1. software_engineering is used only if a response carries it (list endpoints currently do not), in which case the 0.6/0.4 split becomes 0.45/0.30/0.25.",
+    "weights": {
+      "coding": 0.45,
+      "intelligence": 0.3,
+      "software_engineering": 0.25
+    }
+  },
+  "cost": {
+    "$comment": "subscriptionWeight scales the cost of models behind subscription providers (marginal cost ~0 until quota) but must stay > 0 so a subscription model never looks infinitely cheap. It applies to every cost comparison.",
+    "subscriptionWeight": 0.25,
+    "defaultBilling": "metered",
+    "providers": {
+      "openai-codex": {
+        "billing": "subscription"
+      },
+      "kimi-coding": {
+        "billing": "subscription"
+      },
+      "opencode-go": {
+        "billing": "subscription"
+      },
+      "google": {
+        "billing": "metered"
+      },
+      "groq": {
+        "billing": "metered"
+      },
+      "huggingface": {
+        "billing": "metered"
+      }
+    }
+  },
+  "blocked": [
+    {
+      "match": "opencode-go/deepseek-v4*",
+      "reason": "region-blocked for this operator (2026-09)"
+    },
+    {
+      "match": "opencode-go/deepseek-*",
+      "reason": "region-blocked for this operator (2026-09)"
+    },
+    {
+      "match": "groq/*",
+      "reason": "rejects pi's prompt_cache_key (2026-09)"
+    }
+  ],
+  "quota": {
+    "$comment": [
+      "Agent loops spend one request per tool step, so a model with few requests per 5h is unfit as the primary of a loop-heavy tier even when its metrics are great.",
+      "requests_per_5h: number = documented cap; `unlimited: true` = no documented cap (time-limited free models);",
+      "absent = unknown, treated as unrestricted and flagged `quota: unknown` in the output.",
+      "tiers.minRequestsPer5h is the per-tier floor; a model below it is kept out of that tier's chain entirely."
+    ],
+    "source": "operator plan limits, 2026-09",
+    "tiers": {
+      "cto": 0,
+      "lead": 0,
+      "senior": 0,
+      "dev": 1000,
+      "intern": 1000,
+      "research": 1000
+    },
+    "providers": {
+      "opencode-go": {
+        "plan": "Go ($10)",
+        "models": {
+          "kimi-k3": {
+            "requests_per_5h": 110,
+            "usd_cap": 15
+          },
+          "qwen3.8-max": {
+            "requests_per_5h": 160,
+            "usd_cap": 15
+          },
+          "grok-4.7": {
+            "requests_per_5h": 169,
+            "usd_cap": 15
+          },
+          "grok-4.6": {
+            "requests_per_5h": 169,
+            "usd_cap": 15
+          },
+          "glm-5.3": {
+            "requests_per_5h": 220,
+            "usd_cap": 15
+          },
+          "glm-5.2": {
+            "requests_per_5h": 880,
+            "usd_cap": 60
+          },
+          "deepseek-v4-pro": {
+            "requests_per_5h": 1050,
+            "usd_cap": 15,
+            "note": "blocked: region"
+          },
+          "kimi-k2.7-code": {
+            "requests_per_5h": 1350,
+            "usd_cap": 60
+          },
+          "hy4-preview": {
+            "requests_per_5h": 1350,
+            "usd_cap": 30
+          },
+          "gpt-5.6-luna": {
+            "requests_per_5h": 2050,
+            "usd_cap": 15
+          },
+          "minimax-m3": {
+            "requests_per_5h": 3200,
+            "usd_cap": 60
+          },
+          "mimo-v2.6-pro": {
+            "requests_per_5h": 3250,
+            "usd_cap": 15
+          },
+          "mimo-v2.5-pro": {
+            "requests_per_5h": 3250,
+            "usd_cap": 15
+          },
+          "minimax-m2.7": {
+            "requests_per_5h": 3400,
+            "usd_cap": 60
+          },
+          "gpt-6-luna": {
+            "requests_per_5h": 4230,
+            "usd_cap": 15
+          },
+          "qwen3.7-plus": {
+            "requests_per_5h": 4300,
+            "usd_cap": 60
+          },
+          "hy3": {
+            "requests_per_5h": 4300,
+            "usd_cap": 60
+          },
+          "qwen3.8-flash": {
+            "requests_per_5h": 5400,
+            "usd_cap": 30
+          },
+          "glm-5.3-flash": {
+            "requests_per_5h": 6320,
+            "usd_cap": 60
+          },
+          "deepseek-v4-flash-vision-exp": {
+            "requests_per_5h": 6500,
+            "usd_cap": 15,
+            "note": "blocked: region"
+          },
+          "longcat-2.0": {
+            "requests_per_5h": 11400,
+            "usd_cap": 60
+          },
+          "deepseek-v4-flash": {
+            "requests_per_5h": 13000,
+            "usd_cap": 30,
+            "note": "blocked: region"
+          },
+          "deepseek-v4.1-flash": {
+            "requests_per_5h": 26000,
+            "usd_cap": 60,
+            "note": "blocked: region"
+          },
+          "mimo-v2.6-flash": {
+            "requests_per_5h": 30100,
+            "usd_cap": 60
+          },
+          "mimo-v2.5": {
+            "requests_per_5h": 30100,
+            "usd_cap": 60
+          },
+          "muse-spark-1.3-contributor": {
+            "requests_per_5h": 45300,
+            "usd_cap": 60,
+            "note": "limited regions"
+          },
+          "muse-spark-1.2-contributor": {
+            "requests_per_5h": 45300,
+            "usd_cap": 60,
+            "note": "limited regions"
+          },
+          "space-bunny-free": {
+            "requests_per_5h": null,
+            "unlimited": true,
+            "note": "unlimited (limited time)"
+          },
+          "longcat-2.5-preview-free": {
+            "requests_per_5h": null,
+            "unlimited": true,
+            "note": "unlimited (limited time)"
+          }
+        }
+      }
+    }
+  },
+  "free": {
+    "$comment": [
+      "Free-tier models that Artificial Analysis does not cover. Policy: every tier's chain gets the `first-fallback` model right after the primary and the `last` model at the very end, unless the tier is in excludeTiers.",
+      "They are placed, never ranked; cost is 0 and quota comes from quota.providers (unlimited). qualityOverride is a third-party figure on a different scale than AA capability, shown for information only.",
+      "availableUntil stays \"unknown\" until the provider announces an end date; the quota block marks these models 'unlimited (limited time)'."
+    ],
+    "availableUntil": "unknown",
+    "excludeTiers": [],
+    "models": {
+      "opencode-go/space-bunny-free": {
+        "position": "first-fallback",
+        "qualityOverride": {
+          "capability": 52.61,
+          "source": "aicodingdaily 2026-09, ~ GPT-6-Sol High",
+          "speedSeconds": 1140
+        },
+        "note": "slow: ~19 min per prompt"
+      },
+      "opencode-go/longcat-2.5-preview-free": {
+        "position": "last",
+        "qualityOverride": {
+          "capability": 44.25,
+          "source": "aicodingdaily 2026-09"
+        }
+      }
+    }
+  },
+  "providerStatus": {
+    "$comment": "Operator-reported provider health, printed as advisory context only. Never used to exclude a model: quotas and outages are temporary. `asOf` dates the report.",
+    "asOf": "2026-09-30",
+    "providers": {
+      "google": {
+        "state": "degraded",
+        "note": "returns 402: prepayment credits depleted"
+      },
+      "openai-codex": {
+        "state": "quota",
+        "note": "hit the 5-hour usage limit on 2026-09-30"
+      },
+      "kimi-coding": {
+        "state": "quota",
+        "note": "hit the 5-hour usage limit on 2026-09-30"
+      }
+    }
+  },
+  "chainLength": 5,
+  "diversity": {
+    "$comment": "A chain should span at least minProviders pi providers where possible, so quota exhaustion on one provider does not empty the chain. If the pool holds no other provider, the chain is left as-is and flagged.",
+    "minProviders": 2
+  },
+  "escalation": {
+    "$comment": "never auto-escalate: a tier's chain excludes any model holding a higher tier's top slot. scope=model reserves the AA base model across providers; scope=entry reserves only the specific provider/model.",
+    "allow": false,
+    "scope": "model"
+  },
+  "research": {
+    "$comment": "Research axis: long context and low cost, no capability floor. Context window comes from pi's own model registry. `prefer` pins the operator's favourites first, in order.",
+    "minContextTokens": 200000,
+    "prefer": [
+      "google/gemini-3.8-flash"
+    ]
+  },
+  "metricsFallback": "flagship",
+  "tiers": {
+    "cto": {
+      "minCapabilityRatio": 0.97,
+      "rankBy": [
+        "capability"
+      ],
+      "thinking": "high"
+    },
+    "lead": {
+      "minCapabilityRatio": 0.92,
+      "rankBy": [
+        "capability",
+        "cost"
+      ],
+      "thinking": "high"
+    },
+    "senior": {
+      "minCapabilityRatio": 0.85,
+      "rankBy": [
+        "capabilityPerCost"
+      ],
+      "thinking": "high"
+    },
+    "dev": {
+      "minCapabilityRatio": 0.75,
+      "rankBy": [
+        "capabilityPerCost",
+        "speed"
+      ],
+      "thinking": "medium"
+    },
+    "intern": {
+      "minCapabilityRatio": 0.55,
+      "rankBy": [
+        "cost",
+        "speed"
+      ],
+      "thinking": "low"
+    },
+    "research": {
+      "axis": "context-cost",
+      "minCapabilityRatio": 0.4,
+      "rankBy": [
+        "cost",
+        "speed"
+      ],
+      "thinking": "off"
+    }
+  },
+  "aliases": {
+    "$comment": "Normalized AA base name/slug -> explicit pi provider/model ids. Additive to normalized name matching. Keys are normalizeName() output: lowercase, parentheticals and non-alphanumerics removed (e.g. 'Kimi K3' -> 'kimik3').",
+    "kimik3": [
+      "kimi-coding/k3",
+      "opencode-go/kimi-k3"
+    ],
+    "kimik3256k": [
+      "kimi-coding/k3-256k"
+    ],
+    "kimiforcoding": [
+      "kimi-coding/kimi-for-coding"
+    ],
+    "kimiforcodinghighspeed": [
+      "kimi-coding/kimi-for-coding-highspeed"
+    ],
+    "kimik2thinking": [
+      "huggingface/moonshotai/Kimi-K2-Thinking"
+    ]
+  }
+}
