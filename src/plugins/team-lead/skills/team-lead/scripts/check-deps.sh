@@ -4,7 +4,9 @@
 #
 # Checks the base tools every team needs, Herdr when running inside it, and
 # whatever each harness in the saved harness config needs (its CLI, and for pi
-# the pi-claude-link extension unless the config says `messaging: herdr`).
+# the pi-claude-link extension unless the config says `messaging: herdr`). It
+# also validates each harness's `env:` block: variable names must be valid, and
+# every `defaults:` key must also be listed under `inherit:`.
 # Skills (worktrunk, code-review, herdr) cannot be checked from a shell; the
 # lead checks those against its own skills listing.
 #
@@ -63,8 +65,31 @@ if [ -n "$config" ] && [ -f "$config" ]; then
       sub(/[[:space:]]+#.*$/, "", line)
       return line
     }
-    function emit(   binary, first) {
+    function envname(line,   k) {
+      k = line
+      sub(/^[[:space:]]*-?[[:space:]]*/, "", k)
+      sub(/:.*$/, "", k)
+      sub(/[[:space:]]+#.*$/, "", k)
+      gsub(/^["\047]|["\047]$/, "", k)
+      return k
+    }
+    function add_inherit(list,   n, i, parts) {
+      sub(/[[:space:]]+#.*$/, "", list)
+      if (index(list, "[")) list = substr(list, index(list, "[") + 1)
+      sub(/\][[:space:]]*$/, "", list)
+      n = split(list, parts, /[[:space:]]*,[[:space:]]*/)
+      for (i = 1; i <= n; i++) {
+        gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", parts[i])
+        if (parts[i] != "") { inherit[parts[i]] = 1; check_name(parts[i], "inherit") }
+      }
+    }
+    function check_name(v, where) {
+      if (v !~ /^[A-Za-z_][A-Za-z0-9_]*$/) print "E" sep name sep "invalid variable name in env." where ": " v
+    }
+    function emit(   binary, first, k) {
       if (name == "") return
+      for (k in defaults) if (!(k in inherit))
+        print "E" sep name sep "env.defaults." k " has no matching env.inherit entry; add " k " to inherit: or move it to set:"
       binary = bin
       if (binary == "") {
         first = launch
@@ -73,22 +98,37 @@ if [ -n "$config" ] && [ -f "$config" ]; then
         sub(/[[:space:]"\047].*$/, "", first)
         if (first != "env" && first !~ /^[A-Za-z_][A-Za-z_0-9]*=/) binary = first
       }
-      sep = sprintf("%c", 31)
-      print name sep binary sep messaging sep bin_set
+      print "H" sep name sep binary sep messaging sep bin_set
     }
+    BEGIN { sep = sprintf("%c", 31) }
     /^harnesses:/ { in_section = 1; next }
     /^[^ #]/      { in_section = 0 }
     !in_section   { next }
     /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
-      emit(); name = $1; sub(/:$/, "", name); launch = ""; bin = ""; bin_set = 0; messaging = "-"; next
+      emit(); name = $1; sub(/:$/, "", name); launch = ""; bin = ""; bin_set = 0; messaging = "-"
+      delete inherit; delete defaults; env_key = ""; next
     }
+    /^    [A-Za-z_]+:/ { env_key = "" }
     /^    launch:/    { launch = scalar($0) }
     /^    bin:/       { bin = scalar($0); gsub(/^["\047]|["\047]$/, "", bin); bin_set = 1 }
     /^    messaging:/ { messaging = scalar($0) }
+    /^    env:/       { env_key = "env" }
+    env_key == "" { next }
+    /^      inherit:/  { env_key = "inherit"; if ($0 ~ /\[/) add_inherit($0); next }
+    /^      defaults:/ { env_key = "defaults"; next }
+    /^      set:/      { env_key = "set"; next }
+    /^      [A-Za-z_]+:/ { env_key = "env"; next }
+    env_key == "inherit"  && /^        -/ { add_inherit(envname($0)) }
+    env_key == "defaults" && /^        [^ #-]/ { defaults[envname($0)] = 1; check_name(envname($0), "defaults") }
+    env_key == "set"      && /^        [^ #-]/ { check_name(envname($0), "set") }
     END { emit() }
   ' "$config" > "${TMPDIR:-/tmp}/check-deps.$$"
   # Read from a file, not a pipe, so `report` runs in this shell and sets `missing`.
-  while IFS=$'\037' read -r harness binary messaging bin_set; do
+  while IFS=$'\037' read -r kind harness binary messaging bin_set; do
+    if [ "$kind" = E ]; then
+      report "valid env: block for $harness" "$binary"
+      continue
+    fi
     # Accept only a single literal executable token or path. Even the inferred
     # launch token must not contain shell syntax (or delimiters in this parser).
     if [ "$bin_set" = 1 ] && { [[ ! "$binary" =~ ^[A-Za-z0-9_./-]+$ ]] || [ "$binary" = env ]; }; then

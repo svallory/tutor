@@ -54,6 +54,25 @@ On first use the lead detects which coding-agent CLIs are installed (Claude Code
 
 For multi-provider harnesses the lead lists what can actually run rather than guessing: `pi --list-models` shows only providers with credentials configured.
 
+### Dev environment
+
+A dev's shell does not inherit the lead's environment, so a lead running under a non-default config directory (say `CLAUDE_CONFIG_DIR` pointing at a work account) would otherwise spawn devs on the personal account. Each harness entry in `harnesses.yaml` takes an `env:` block that says which variables cross that boundary:
+
+```yaml
+harnesses:
+  claude:
+    launch: claude --model <model>
+    herdr_kind: claude
+    env:
+      inherit: [CLAUDE_CONFIG_DIR]      # copied from the lead's env when set there
+      defaults:                         # used when a listed var is unset in the lead's env
+        CLAUDE_CONFIG_DIR: ~/.claude-work
+      set:                              # always this value
+        DISABLE_AUTOUPDATER: "1"
+```
+
+Only listed variables are passed, so session-specific values never leak into a dev. Setup writes the `inherit` list for each known harness (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`) by default; `check-deps.sh` rejects a `defaults` key that is not also in `inherit`. Inside Herdr the pairs become `--env` flags on `herdr tab create`; elsewhere they prefix the launch command.
+
 ## Roles and models
 
 The lead picks the cheapest role that will finish in one or two attempts, escalating one tier when a dev gets stuck. It never starts at the top tier "to be safe".
