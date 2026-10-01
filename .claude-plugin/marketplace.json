@@ -20,6 +20,11 @@
       "source": "./dist/claude/plugins/ghostwriter"
     },
     {
+      "name": "obscura",
+      "description": "Drive the Obscura headless browser from an agent: fetch and scrape JavaScript-rendered pages, run Playwright scripts and E2E suites against its CDP server without bundled Chromium, and watch the session live.",
+      "source": "./dist/claude/plugins/obscura"
+    },
+    {
       "name": "okf",
       "description": "Create, validate, and enrich Open Knowledge Format (OKF) bundles — the open spec for representing organizational knowledge as markdown files with YAML frontmatter. Covers v0.2 provenance, trust, lifecycle, and Attested Computations.",
       "source": "./dist/claude/plugins/okf"
