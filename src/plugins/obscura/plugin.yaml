@@ -1,0 +1,9 @@
+name: obscura
+version: 0.1.0
+description: >-
+  Drive the Obscura headless browser from an agent: fetch and scrape JavaScript-rendered pages, run Playwright scripts and E2E suites against its CDP server without bundled Chromium, and watch the session live.
+author: Saulo Vallory
+keywords: [obscura, headless-browser, playwright, cdp, scraping, e2e]
+interface:
+  displayName: Obscura
+  shortDescription: Headless browser for scraping and Playwright runs
