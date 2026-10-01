@@ -23,7 +23,7 @@ Questions travel up the chain, one level at a time. Only the agent at the top �
 Before step 0 of the workflow, once per session, after the [Harness config](#harness-config) is loaded (or written by [Harness setup](#harness-setup)):
 
 ```bash
-$KIMI_PLUGIN_ROOT/skills/team-lead/scripts/check-deps.sh --config "${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml"
+$KIMI_PLUGIN_ROOT/skills/team-lead/scripts/check-deps.sh --config "${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead/harnesses.yaml"
 ```
 
 It checks `git`, `gh` (and its login), `jq`, `wt`, `flock`, `herdr` when `HERDR_ENV=1`, the CLI of every harness in the config, and `pi-claude-link` when the config includes pi without `messaging: herdr`. It prints nothing and exits 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each. Skills can't be checked from a shell: confirm `worktrunk`, `code-review` and (inside Herdr) `herdr` are in the skills list surfaced to you this session, not from memory.
@@ -32,7 +32,7 @@ If anything is missing, **stop before spawning any dev** and tell the user what 
 
 ## Harness config
 
-Before step 0, read your saved harness choices: `cat "${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml"`. If the file does not exist, run [Harness setup](#harness-setup) first. Otherwise it is the source of truth for which harnesses and models you may launch.
+Before step 0, read your saved harness choices: `cat "${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead/harnesses.yaml"`. If the file does not exist, run [Harness setup](#harness-setup) first. Otherwise it is the source of truth for which harnesses and models you may launch.
 
 Re-run the setup when the user asks ("reconfigure harnesses", "add codex to the team"), or when the dependency check reports a configured harness missing — tell the user which one and ask before dropping it. If `pi-claude-link` is reported missing and the user doesn't want it back, set `messaging: herdr` for pi.
 
@@ -65,9 +65,9 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
    done
    ```
 2. **Ask which to use.** One multi-select question per group of at most four detected harnesses (the question tool caps options at four; use up to four questions). Label each option with the harness and one line on what it is good for, from [Known harnesses and models](#known-harnesses-and-models). Tell the user they can type any harness that was not detected in "Other" (a wrapper script, a remote runner, a CLI installed somewhere unusual) with its launch command.
-3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), optional `bin:` (the actual executable, required when `launch:` starts with `env` or an assignment), Herdr `--kind` if it has one, the models the user's plan gives access to, and quota notes. For a multi-provider harness, list what it can actually run instead of guessing: `pi --list-models` shows only providers that have credentials configured, so a paid model whose provider isn't set up won't appear. Ask only what you cannot find out (for example which models their subscription includes). Then check what the chosen harnesses need for [Agent messaging](#agent-messaging): for pi, the `pi-claude-link` extension (`pi list | grep -q pi-claude-link`). If it is missing, ask the user before installing (`pi install git:github.com/alonw0/pi-claude-link`); if they decline, record `messaging: herdr` for pi in the config so pi devs use Herdr.
+3. **Fill each chosen harness.** From the known-harness table plus the harness's own `--help` or model list: launch command (non-interactive and interactive), optional `bin:` (the actual executable, required when `launch:` starts with `env` or an assignment), Herdr `--kind` if it has one, the models the user's plan gives access to, quota notes, and the `env:` block (see [Dev environment](#dev-environment)): `inherit:` starts from the "Env to inherit" column of the table, so a dev runs under the same account and config directory as the lead; add `defaults:` or `set:` only when the user asks for them. For a multi-provider harness, list what it can actually run instead of guessing: `pi --list-models` shows only providers that have credentials configured, so a paid model whose provider isn't set up won't appear. Ask only what you cannot find out (for example which models their subscription includes). Then check what the chosen harnesses need for [Agent messaging](#agent-messaging): for pi, the `pi-claude-link` extension (`pi list | grep -q pi-claude-link`). If it is missing, ask the user before installing (`pi install git:github.com/alonw0/pi-claude-link`); if they decline, record `messaging: herdr` for pi in the config so pi devs use Herdr.
 4. **Propose routing.** Do not invent it: start from the curated chains in `$KIMI_PLUGIN_ROOT/skills/team-lead/default-models.yaml`. Its `routing:` block has the same shape as the config's (role -> ordered `harness:model` preferences, one reason per line as a comment). Keep only the entries whose harness the user chose in step 2 (`claude:...` needs `claude`; `pi:<provider>/<model>[:<thinking>]` needs `pi`, and its provider/model must appear in `pi --list-models`, which shows only providers with credentials; for `claude:` entries the model must be one the user's plan gives). Keep the file's order. A role left with no entry falls back to the "best for" column of [Known harnesses and models](#known-harnesses-and-models); tell the user which roles you had to fill that way. Ask the user to confirm or edit the result in one question with it as the default. The file is curated by hand and may lag reality: where it disagrees with what the harness lists, the harness wins and you say so.
-5. **Save** the confirmed routing, with the user's edits, to `${XDG_CONFIG_HOME:-$HOME/.config}/team-lead/harnesses.yaml` (create the directory if needed); from then on the saved routing is the source of truth, not `default-models.yaml`. Show the user a 5-line summary. Format:
+5. **Save** the confirmed routing, with the user's edits, to `${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead/harnesses.yaml` (create the directory if needed); from then on the saved routing is the source of truth, not `default-models.yaml`. Show the user a 5-line summary. Format:
    ```yaml
    # team-lead harness config. Written by the team-lead skill; safe to edit by hand.
    updated: 2026-09-27
@@ -78,14 +78,20 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
        herdr_kind: codex
        models: [gpt-5.6-sol]
        notes: weekly quota; check before assigning M/L work
+       env:
+         inherit: [CODEX_HOME]
      claude:
        launch: claude --model <model>
        herdr_kind: claude
        models: [haiku, sonnet, opus]
+       env:
+         inherit: [CLAUDE_CONFIG_DIR]   # same account/config dir as the lead; see Dev environment
      pi:
        launch: pi --name <agent-name>
        herdr_kind: pi
        messaging: claude-link   # or herdr when pi-claude-link is not installed
+       env:
+         inherit: [PI_CODING_AGENT_DIR]
    routing:                     # role -> ordered harness:model preferences
      researcher:   [agy:gemini-3.1-pro, claude:haiku]
      mechanic:     [kimi:kimi-for-coding-highspeed, claude:haiku]
@@ -96,22 +102,41 @@ Run when the harness config is missing or the user asks to reconfigure. The goal
    ```
 6. From then on, pick a role's first harness whose quota is available; fall to the next on a quota error, and note the switch in the status table.
 
+### Dev environment
+
+A dev's shell does not inherit the lead's environment: inside Herdr the pane shell comes from the Herdr server, and outside Herdr a background shell starts clean. So a lead running under a non-default config directory (for example `CLAUDE_CONFIG_DIR` pointing at a work account) would otherwise spawn devs on the personal account. Each harness's optional `env:` block says which variables cross that boundary:
+
+```yaml
+env:
+  inherit: [CLAUDE_CONFIG_DIR, CLAUDE_PROMPT_INFO]   # copy from the lead's env when set there
+  defaults:                                          # used when a listed var is unset in the lead's env
+    CLAUDE_CONFIG_DIR: ~/.claude-work
+  set:                                               # always this value, whatever the lead has
+    DISABLE_AUTOUPDATER: "1"
+```
+
+- `inherit`: copied from your own environment when set there; a variable not listed is never copied, so Herdr pane IDs and other session-specific values never leak into a dev.
+- `defaults`: value for a listed variable that is unset in your environment. Every key must also appear in `inherit`; a default for an unlisted variable is a config error (`check-deps.sh` reports it).
+- `set`: forced value, independent of your environment.
+
+Precedence: `set` > your value > `defaults`. Expand a leading `~` to `$HOME`. Resolve the block once per launch into `KEY=VALUE` pairs and pass them to the launcher: `--env KEY=VALUE` on `herdr tab create` in [Herdr mode](#herdr-mode), an `env KEY=VALUE ...` prefix on the launch command elsewhere. With no `env:` block nothing is passed, which is why setup always writes the table's `inherit` list.
+
 ## Known harnesses and models
 
 Snapshot as of 2026-09. Model names change often: confirm with the harness's own model list before writing the config, and let the user's config win over this table.
 
-| Harness (CLI) | Models | Best for | Launch notes |
-|---|---|---|---|
-| Claude Code (`claude`) | Haiku 4.5 (`haiku`) | lookups, research that returns text, mechanical edits, running verify and reporting counts | `--model haiku`; cheapest Claude tier |
-| | Sonnet 5 (`sonnet`) | default development: features, bug fixes, tests, `/code-review` passes | |
-| | Opus 5.5 (`opus`) | hard bugs, gnarly types, multi-system changes, reviews of core contracts, squad leaders | |
-| | Fable 5.1 (`fable`) | only when the user asks for it; never for work Opus or Sonnet can do | most expensive tier |
-| Codex CLI (`codex`) | `gpt-5.6-sol` | M/L implementation; strong at following a precise brief | `-c 'model_reasoning_effort="high"'` for M/L (the default effort may be low); weekly quota, so check before assigning; its sandbox may block git writes when the repo's `.git` is outside the worktree (add it to `writable_roots`) |
-| Kimi Code (`kimi`) | `kimi-for-coding-highspeed`, `kimi-for-coding`, `k3`, `k3-256k` | highspeed: mechanical edits and verify runs; `kimi-for-coding`/`k3`: S/M implementation; `k3-256k`: tasks that read a lot of source | use the managed alias `-m kimi-code/<model>`; a bare alias may fail auth. A wrapper that runs Claude Code against Kimi's endpoint (e.g. a `klaude` script) is a drop-in Claude-kind dev with the same skills and hooks |
-| Antigravity (`agy`) | Gemini 3.1 Pro | research with citations, docs lookups, really simple tasks | asks a folder-trust question on first run in a directory; answer it before sending the brief |
-| Gemini CLI (`gemini`) | Gemini models on the user's plan | same niche as `agy` when it is the one configured | |
-| pi (`pi`) | any model from its configured providers; list them with `pi --list-models` | route by the model behind it, not the CLI | pick a model with `--model <provider>/<model>[:<thinking>]`; launch with `--name <agent-name>` so it shows under that name in Claude's `/list-agents`; needs the `pi-claude-link` extension to message Claude sessions |
-| opencode, aider, crush, others | whatever provider the user configured | ask the user; route by the model behind it, not the CLI | record the exact launch command the user gives |
+| Harness (CLI) | Models | Best for | Launch notes | Env to inherit |
+|---|---|---|---|---|
+| Claude Code (`claude`) | Haiku 4.5 (`haiku`) | lookups, research that returns text, mechanical edits, running verify and reporting counts | `--model haiku`; cheapest Claude tier | `CLAUDE_CONFIG_DIR` (account and settings directory) |
+| | Sonnet 5 (`sonnet`) | default development: features, bug fixes, tests, `/code-review` passes | | |
+| | Opus 5.5 (`opus`) | hard bugs, gnarly types, multi-system changes, reviews of core contracts, squad leaders | | |
+| | Fable 5.1 (`fable`) | only when the user asks for it; never for work Opus or Sonnet can do | most expensive tier | |
+| Codex CLI (`codex`) | `gpt-5.6-sol` | M/L implementation; strong at following a precise brief | `-c 'model_reasoning_effort="high"'` for M/L (the default effort may be low); weekly quota, so check before assigning; its sandbox may block git writes when the repo's `.git` is outside the worktree (add it to `writable_roots`) | `CODEX_HOME` (config and auth directory) |
+| Kimi Code (`kimi`) | `kimi-for-coding-highspeed`, `kimi-for-coding`, `k3`, `k3-256k` | highspeed: mechanical edits and verify runs; `kimi-for-coding`/`k3`: S/M implementation; `k3-256k`: tasks that read a lot of source | use the managed alias `-m kimi-code/<model>`; a bare alias may fail auth. A wrapper that runs Claude Code against Kimi's endpoint (e.g. a `klaude` script) is a drop-in Claude-kind dev with the same skills and hooks | none known; a `klaude`-style wrapper inherits like Claude Code |
+| Antigravity (`agy`) | Gemini 3.1 Pro | research with citations, docs lookups, really simple tasks | asks a folder-trust question on first run in a directory; answer it before sending the brief | none known |
+| Gemini CLI (`gemini`) | Gemini models on the user's plan | same niche as `agy` when it is the one configured | | none known |
+| pi (`pi`) | any model from its configured providers; list them with `pi --list-models` | route by the model behind it, not the CLI | pick a model with `--model <provider>/<model>[:<thinking>]`; launch with `--name <agent-name>` so it shows under that name in Claude's `/list-agents`; needs the `pi-claude-link` extension to message Claude sessions | `PI_CODING_AGENT_DIR` (config directory) |
+| opencode, aider, crush, others | whatever provider the user configured | ask the user; route by the model behind it, not the CLI | record the exact launch command the user gives | ask the user |
 
 Routing rule of thumb: the cheapest harness that finishes in one or two attempts, with Claude kept for leads, reviews and hard problems when other harnesses are available. A reviewer should use a different model from the dev whose work it reviews.
 
@@ -130,7 +155,7 @@ Routing rule of thumb: the cheapest harness that finishes in one or two attempts
    WORKTREE=$(wt list --format json | jq -r --arg b "$BRANCH" '.items[] | select(.branch==$b) | .path')
    ```
    Elsewhere: `git worktree add "../<repo>-<ref>" -b "$BRANCH"` and use that path.
-5. **Launch devs** on the harness and model the config's `routing` gives the role. Inside Herdr use [Herdr mode](#herdr-mode) for every harness. Outside Herdr, a Kimi Code dev uses the Agent tool with `run_in_background: true`; another harness runs non-interactively in a background shell (e.g. `codex exec`, `kimi -p`) with its report written to a file.
+5. **Launch devs** on the harness and model the config's `routing` gives the role. Inside Herdr use [Herdr mode](#herdr-mode) for every harness. Outside Herdr, a Kimi Code dev uses the Agent tool with `run_in_background: true`; another harness runs non-interactively in a background shell (e.g. `codex exec`, `kimi -p`) with its report written to a file, prefixed with the `env KEY=VALUE ...` pairs its config's `env:` block resolves to ([Dev environment](#dev-environment)).
 6. **Brief each dev** with the [dev brief template](#dev-brief-template).
 7. **Monitor.** Act on completion notifications. Do not poll. Keep a status table (ref, dev, model, state, worktree, last note).
 8. **Review** every delivery with the [review checklist](#review-checklist). Send back with specific findings, or accept.
@@ -294,9 +319,16 @@ Each dev gets **one tab** whose root pane runs the dev session, with cwd = the h
 Session naming: `[project]-[task-ref]`, e.g. `campaigns-action-types`. Same name for the Claude display name, the Remote Control name, and the Herdr agent name.
 
 ```bash
-# 1. tab, cwd = space root, no focus steal
+# 0. the dev's environment: resolve the harness's env: block (see Dev
+#    environment) into --env flags. Shown for claude with inherit: [CLAUDE_CONFIG_DIR];
+#    one --env per resolved pair, inherited vars only when set in your own env.
+env_args=()
+[ -n "${CLAUDE_CONFIG_DIR:-}" ] && env_args+=(--env "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR")
+
+# 1. tab, cwd = space root, no focus steal; the env flags apply to the pane shell,
+#    so everything started in it (agent start included) sees them
 WORKSPACE=$(herdr pane current --current | jq -r .result.pane.workspace_id)
-tab=$(herdr tab create --workspace "$WORKSPACE" --cwd "$SPACE_ROOT" --label "$REF" --no-focus)
+tab=$(herdr tab create --workspace "$WORKSPACE" --cwd "$SPACE_ROOT" --label "$REF" --no-focus "${env_args[@]}")
 tab_id=$(jq -r .result.tab.tab_id <<<"$tab")
 root_pane=$(jq -r .result.root_pane.pane_id <<<"$tab")
 
@@ -309,6 +341,8 @@ herdr agent start "$name" --kind claude --pane "$root_pane" \
      --disallowedTools AskUserQuestion
 # other harnesses: --kind <herdr_kind from the config>, args after `--` per that
 # CLI, always denying its ask-the-operator tool (pi: `--exclude-tools ask_user`).
+# `agent start` runs the kind's canonical executable, so the dev's account and
+# config come from the --env flags above, never from a shell alias or wrapper.
 # If `agent start` rejects a kind or a wrapper script, fall back to
 #   herdr pane run "$root_pane" "<launch command from the config>"
 #   herdr agent rename "$root_pane" "$name"
