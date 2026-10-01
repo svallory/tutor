@@ -17,6 +17,11 @@
       "source": "./plugins/ghostwriter"
     },
     {
+      "id": "obscura",
+      "displayName": "Obscura",
+      "source": "./plugins/obscura"
+    },
+    {
       "id": "okf",
       "displayName": "OKF",
       "source": "./plugins/okf"

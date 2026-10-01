@@ -36,6 +36,13 @@
       "skills": [
         "decompose"
       ]
+    },
+    {
+      "title": "Browser Automation",
+      "description": "Scrape JavaScript-rendered pages and run Playwright on the Obscura headless browser.",
+      "skills": [
+        "obscura"
+      ]
     }
   ]
 }
