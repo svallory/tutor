@@ -20,6 +20,7 @@ A marketplace of plugins and skills that tutor AI agents.
 | **demo-video** | Narrated, subtitled MP4 demos of web-app features: Playwright recording with animated cursor, ffmpeg assembly paced by TTS narration, title cards and outro. |
 | **sync-skills** | One shared `~/.agents/skills` folder for Claude Code, Pi, Kimi, Codex and agy with no duplicate skill names: real per-config Claude skills folders with per-skill links, claude.ai-synced skills linked once. |
 | **okf** | Create, validate, and enrich Open Knowledge Format (OKF) bundles — knowledge as markdown files with YAML frontmatter, incl. v0.2 provenance, trust, and Attested Computations. |
+| **obscura** | Drive the Obscura headless browser: fetch and scrape JavaScript-rendered pages, run Playwright scripts and E2E suites against its CDP server without bundled Chromium, and watch the session live. |
 | **hyper** | Hyper Coding workflow support: project spaces (a bare repo wrapping all of a project's worktrees), per-edit integration with a project's own linters/typecheckers, spec-driven planning, and template-driven generation. Sourced externally from [hyper-coding](https://github.com/svallory/hyper-coding). |
 
 ### Ghostwriter
@@ -81,6 +82,16 @@ Ask to "sync skills" when agents report skill-name collisions or Claude doesn't 
 Teaches the agent the [Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format): create bundles, validate them (via [okflint](https://github.com/mattdav/okflint) or the bundled fallback script), enrich concepts with provenance and trust fields, migrate v0.1 → v0.2, and convert Notion/Obsidian/CSV sources.
 
 See [okf README](src/plugins/okf/README.md) for contents and details.
+
+### Obscura
+
+```
+/plugin install obscura@tutor
+```
+
+Ask to "fetch this page with obscura" or "run the e2e suite on obscura". Requires the [Obscura](https://github.com/h4ckf0r0day/obscura/releases) binary on `PATH`, plus a Playwright package in the project for E2E runs (no browser download). The skill's facts carry the versions they were measured on, and a bundled probe re-measures Playwright support on whatever is installed.
+
+See [obscura README](src/plugins/obscura/README.md) for the scripts, the Playwright Test fixture, and the known gaps.
 
 ## Individual skills via the skills CLI
 
