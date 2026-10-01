@@ -17,8 +17,9 @@ platforms:
     harness: Claude Code
     configDir: .claude
     pluginRootVar: $CLAUDE_PLUGIN_ROOT
-    # Persistent per-plugin data dir (survives plugin updates; the plugin root does not).
-    dataDir: ${CLAUDE_PLUGIN_DATA}
+    # Persistent user config dir shared by every platform build, so one harness
+    # config serves a Claude, Kimi or standalone lead alike (survives plugin updates).
+    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead
     # Skill bodies support !`command` injection, run when the skill is invoked.
     contextInjection: true
     models:
@@ -30,12 +31,12 @@ platforms:
     harness: Kimi Code
     configDir: .kimi-code
     pluginRootVar: $KIMI_PLUGIN_ROOT
-    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/team-lead
+    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead
   omni:
     harness: your AI coding agent
     configDir: .agents
     pluginRootVar: $SKILL_DIR
-    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/team-lead
+    dataDir: ${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead
 
 plugins:
   ghostwriter:

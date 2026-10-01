@@ -50,7 +50,7 @@ Triggers on **"team lead"**, **"dev leader"**, **"squad leader"**, **"start dev 
 
 ## Harnesses
 
-On first use the lead detects which coding-agent CLIs are installed (Claude Code, Codex, Kimi, pi, Gemini, and others), asks which ones you want on the team, and saves your choice plus a role → `harness:model` routing to `harnesses.yaml` in a persistent user directory (`${CLAUDE_PLUGIN_DATA}` for Claude, `${XDG_CONFIG_HOME:-$HOME/.config}/team-lead` for Kimi/standalone). The file is plain YAML; edit it by hand or ask the lead to "reconfigure harnesses".
+On first use the lead detects which coding-agent CLIs are installed (Claude Code, Codex, Kimi, pi, Gemini, and others), asks which ones you want on the team, and saves your choice plus a role → `harness:model` routing to `harnesses.yaml` at `${XDG_CONFIG_HOME:-$HOME/.config}/hyper/team-lead/harnesses.yaml`, the same path on every platform build so one config serves a Claude, Kimi or standalone lead. The file is plain YAML; edit it by hand or ask the lead to "reconfigure harnesses".
 
 For multi-provider harnesses the lead lists what can actually run rather than guessing: `pi --list-models` shows only providers with credentials configured.
 
