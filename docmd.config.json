@@ -26,7 +26,8 @@
         { "title": "Team Lead", "path": "/docs/team-lead" },
         { "title": "Demo Video", "path": "/docs/demo-video" },
         { "title": "OKF", "path": "/docs/okf" },
-        { "title": "Decompose", "path": "/docs/decompose" }
+        { "title": "Decompose", "path": "/docs/decompose" },
+        { "title": "Obscura", "path": "/docs/obscura" }
       ]
     },
     {
