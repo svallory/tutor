@@ -72,9 +72,9 @@ Run the command through the wrapper. It starts `obscura serve` on a free port, w
 {{ platform.pluginRootVar }}/skills/obscura/scripts/with-obscura.sh --allow-private-network -- <command>
 ```
 
-Flags before `--` go to `obscura serve`. `--allow-private-network` is needed whenever the pages under test are on localhost; drop it for public sites.
+Flags before `--` go to `obscura serve`. `--allow-private-network` is needed whenever the pages under test are on localhost; drop it for public sites. The port is the first free one from 9222 to 9241; pass `--port <n>` to pin it, in which case a taken port is an error rather than a reason to move on.
 
-**Connect with `chromium.connectOverCDP(process.env.OBSCURA_CDP_URL)`.** Never `chromium.connect()` and never Playwright Test's `use.connectOptions.wsEndpoint`: both speak Playwright's own protocol, which Obscura does not implement, and they fail with a bare connect timeout that looks like a dead server.
+**Connect with `chromium.connectOverCDP(process.env.OBSCURA_CDP_URL)`.** Never `chromium.connect()` and never Playwright Test's `use.connectOptions.wsEndpoint`: both speak Playwright's own protocol, which Obscura does not implement. They fail with a bare connect timeout, or hang with no error when no connect timeout is set, and either way it looks like a dead server.
 
 For a **Playwright Test** suite, the project needs a fixture that swaps the browser. Ask the user before adding files to their project, then copy `obscura.ts` and `live-view.ts` from `{{ platform.pluginRootVar }}/skills/obscura/templates/` into the test directory and import `test`/`expect` from `./obscura` in the specs that should run on Obscura. Without `OBSCURA_CDP_URL` in the environment that file exports the stock `test`, so the project's normal browser run is unchanged. Do not run `playwright install` for an Obscura run: the fixture never launches the bundled browser, so the download buys nothing.
 

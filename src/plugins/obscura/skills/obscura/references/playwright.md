@@ -26,13 +26,13 @@ await browser.close(); // closes the connection; the server keeps running
 
 - `playwright-core` is enough. Nothing here downloads or launches a browser.
 - `ws://127.0.0.1:<port>`, `http://127.0.0.1:<port>` and `ws://127.0.0.1:<port>/devtools/browser` all connect.
-- `chromium.connect()` and Playwright Test's `use.connectOptions.wsEndpoint` do **not** work: they speak Playwright's own wire protocol. The symptom is `browserType.connect: Timeout … exceeded`, with the server up and healthy.
+- `chromium.connect()` and Playwright Test's `use.connectOptions.wsEndpoint` do **not** work: they speak Playwright's own wire protocol. The symptom is `browserType.connect: Timeout … exceeded` when a connect timeout is set and an indefinite hang when it is not, with the server up and healthy.
 - `browser.newContext()` gives an isolated context (separate localStorage and cookies). `browser.contexts()[0]` is the connection's default context.
 - Each connection has its own pages and its own V8 isolates. Pages inside one connection share an isolate, so CPU-bound JavaScript on one page delays the others in that connection.
 
 ## Playwright Test: the fixture
 
-`templates/obscura.ts` replaces the worker-scoped `browser` fixture with a `connectOverCDP` connection when `OBSCURA_CDP_URL` is set, and exports the stock `test` otherwise. `templates/live-view.ts` is its optional viewer. Copy both into the project's test directory (after asking), then in the specs that should run on Obscura:
+`templates/obscura.ts` replaces the worker-scoped `browser` fixture with a `connectOverCDP` connection when `OBSCURA_CDP_URL` is set, and exports the stock `test` otherwise. `templates/live-view.ts` is the viewer it imports; the viewer only starts when `OBSCURA_LIVE_VIEW` is set, but the file has to be there. Copy both into the project's test directory (after asking), then in the specs that should run on Obscura:
 
 ```ts
 import { test, expect } from "./obscura";
@@ -52,7 +52,7 @@ What this was measured to do:
 - Several workers work: each worker opens its own connection (4 tests on 3 workers passed with `--fully-parallel`).
 - `trace: "on"` wrote a `trace.zip` with screencast frames and `video: "on"` wrote a playable `video.webm`. Obscura's docs list both as unimplemented, so open the artifact once before relying on it.
 
-A project that keeps its `webServer` block needs no extra step: Playwright starts the dev server, and `--allow-private-network` lets Obscura reach it.
+The fixture swaps the browser and nothing else. `baseURL`, `webServer`, timeouts and reporters still come from the project's own Playwright config, so a new project needs `use.baseURL` before `page.goto("/")` works. A project that keeps its `webServer` block needs no extra step: Playwright starts the dev server, and `--allow-private-network` lets Obscura reach it.
 
 ## What works
 
@@ -92,7 +92,7 @@ await watchPage(page);                  // the most recently watched page wins
 await stopLiveView();
 ```
 
-With the fixture, `OBSCURA_LIVE_VIEW=8080` does the same for every test's page; add `--workers=1`.
+With the fixture, `OBSCURA_LIVE_VIEW=8080` does the same for every test's page; add `--workers=1`. The port opens when the first test starts and closes with the run, and frames are captured only while a tab is connected, so open the tab as the run starts. A suite that finishes in a second or two can end before the first frame.
 
 How it is built, and why:
 
