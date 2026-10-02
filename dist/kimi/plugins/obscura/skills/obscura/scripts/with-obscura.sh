@@ -81,6 +81,8 @@ cleanup() {
   left=$(alive_jobs)
   # shellcheck disable=SC2086
   [ -n "$left" ] && kill -9 $left 2>/dev/null
+  # reap here with stderr closed, or bash reports the killed job on exit
+  wait 2>/dev/null
   rm -f "$log"
 }
 trap cleanup EXIT
@@ -94,7 +96,13 @@ start_on() {
 
   for _ in $(seq 1 100); do
     kill -0 "$pid" 2>/dev/null || { wait "$pid" 2>/dev/null; pid=""; return 1; }
-    curl -fsS -o /dev/null "http://127.0.0.1:$1/json/version" 2>/dev/null && return 0
+    if curl -fsS -o /dev/null "http://127.0.0.1:$1/json/version" 2>/dev/null; then
+      # obscura 0.2.3 hangs on a SIGTERM that arrives within ~10 ms of its first
+      # answer, and then only SIGKILL stops it; give it a moment so a command
+      # that exits at once still gets a clean shutdown
+      sleep 0.1
+      return 0
+    fi
     sleep 0.1
   done
   return 1
@@ -102,7 +110,7 @@ start_on() {
 
 fail_start() {
   echo "with-obscura.sh: $1" >&2
-  sed 's/^/  obscura: /' "$log" >&2
+  sed '/^[[:space:]]*$/d; s/^/  obscura: /' "$log" >&2
   exit 3
 }
 
