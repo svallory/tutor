@@ -6,7 +6,12 @@
 
 **Plan (supersedes the earlier `agent-link` CLI idea).** This is being solved outside this skill, as part of Hyper:
 
-- **hyper-compat**: small per-harness plugins that give every harness Claude Code's hooks contract, including `asyncRewake` (a background hook that wakes an idle session). Harnesses that already follow the contract need nothing; pi, OpenCode and Amp get an adapter; hook-only harnesses without a background mode fall back to a constant doorbell line typed only when the agent is idle.
+- **hyper-compat**: give every harness Claude Code's hooks contract, including `asyncRewake` (a background hook that wakes an idle session). Hook-only harnesses without a background mode fall back to a constant doorbell line typed only when the agent is idle. Phase 0 is proven (2026-10-01) and needs no new code for the harnesses this skill uses most:
+  - Claude Code: native.
+  - pi: [`pi-code`](https://github.com/ilovepixelart/pi-code) filtered to its hooks extension (`extensions/hooks/index.ts`). Tested alongside a full set of pi packages (pinball, pi-claude-link, pi-ask-user, …): idle wake 10/10, busy delivery exactly once.
+  - Codex: launched attached to `codex app-server` (`codex --remote`) and reached with `codex queue --remote`; plain Codex TUIs keep the doorbell.
+  - OpenCode and Amp: adapters only if they join the roster.
+  - Design constraint for hyper-msg: the wake only works while a Stop hook is pending, so the hook's timeout must cover the longest expected idle gap (or the watcher re-arms it).
 - **hyper-msg**: a durable per-agent inbox (Maildir-style JSON message files) plus a small command (`send`, `ack`, `watch`, `hook`). Messages reach agents through the hooks above, without typing and without the agent checking.
 
 **When it lands, update this skill:**
@@ -14,7 +19,7 @@
 1. Replace the "Agent messaging" table in SKILL.md with `hyper-msg send` for every pair; keep `herdr agent send-keys esc` for interrupts only.
 2. Brief step 12 (completion signal) and the chain-of-command questions use `hyper-msg`.
 3. Switch `scripts/stall-watch.sh` alerts to `hyper-msg send`.
-4. Add `hyper-msg` and the harness adapters to `scripts/check-deps.sh`.
+4. Add `hyper-msg` and, for pi, the filtered `pi-code` package to `scripts/check-deps.sh`; launch Codex devs attached to an app-server.
 5. Drop the pi-claude-link dependency and the `crossSessionInbound: "hold"` limitation note.
 
 ## Orca mode follow-ups

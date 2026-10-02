@@ -67,6 +67,8 @@ On first use the lead detects which coding-agent CLIs are installed (Claude Code
 
 For multi-provider harnesses the lead lists what can actually run rather than guessing: `pi --list-models` shows only providers with credentials configured.
 
+The proposed routing comes from `default-models.yaml`, a curated table that ships with the plugin: for each role, an ordered chain of `harness:model` preferences, best first, each with a one-line reason. The lead keeps only the entries your chosen harnesses can run (in their original order), asks you to confirm or edit the result, and saves it. From then on your `harnesses.yaml` is the source of truth; the shipped table is only the starting point. The table is maintained by hand from the maintainers' model rankings and public benchmark data; nothing calls a ranking API when you run the lead.
+
 ### Dev environment
 
 A dev's shell does not inherit the lead's environment, so a lead running under a non-default config directory (say `CLAUDE_CONFIG_DIR` pointing at a work account) would otherwise spawn devs on the personal account. Each harness entry in `harnesses.yaml` takes an `env:` block that says which variables cross that boundary:
