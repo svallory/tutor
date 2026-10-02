@@ -1,5 +1,5 @@
 name: team-lead
-version: 0.5.0
+version: 0.5.1
 description: >-
   Act as a dev team leader: decompose tasks, spawn developer agents at the cheapest adequate model, review their work, and track progress across a batch (sprint, board, epic, list of tickets).
 author: Saulo Vallory
