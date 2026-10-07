@@ -29,12 +29,25 @@ Checked once per session by `check-deps.sh` (skills are checked against the agen
 | `wt` ([worktrunk](https://github.com/max-sixty/worktrunk)) + the `worktrunk` skill | one git worktree per task |
 | `code-review` skill | independent post-acceptance PR review |
 | `herdr` CLI + skill | only when `HERDR_ENV=1` — one tab per dev and automated monitoring |
+| Orca CLI (`orca`, or `ORCA_CLI_COMMAND`) | only when `ORCA_WORKSPACE_ID` is set — one orchestration worker per dev on any Orca-connected machine, with automated monitoring |
 | `but` (GitButler) | only for projects that use it |
 | `flock` | serializing heavy or order-sensitive work (macOS: `brew install flock`) |
 | the CLI of each configured harness | launching devs on it |
 | [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | when pi is configured for socket messaging with Claude Code; not needed with `messaging: herdr` (install: `pi install git:github.com/alonw0/pi-claude-link`) |
 
-A missing `herdr` while `HERDR_ENV=1` is reported as a contradiction, not quietly downgraded.
+A missing `herdr` while `HERDR_ENV=1`, or a missing or non-responding Orca CLI while `ORCA_WORKSPACE_ID` is set, is reported as a contradiction, not quietly downgraded. Both variables set at once is reported too: the lead asks which mode to use.
+
+## Launch modes
+
+The lead picks where devs run from its own environment, once per session:
+
+| Environment | Mode | Devs run as |
+|---|---|---|
+| `HERDR_ENV=1` | Herdr | one Herdr tab per dev on this machine |
+| `ORCA_WORKSPACE_ID` set | Orca | one Orca terminal per dev, adopted as an orchestration worker, on any machine Orca reaches |
+| neither | plain | background agents or shells on this machine |
+
+Only Orca mode places devs on other machines. See [Orca mode](#orca-mode) below.
 
 ## Usage
 
@@ -116,7 +129,7 @@ wt switch --create "$BRANCH" --base "$BASE" --no-cd -y
 WORKTREE=$(wt list --format json | jq -r --arg b "$BRANCH" '.items[] | select(.branch==$b) | .path')
 ```
 
-**5–7. Launch, brief, and monitor.** Devs run in the background — inside [Herdr](https://github.com/herdrdev/herdr), each in its own one-pane tab you can watch and take over. The lead acts on completion messages and monitor alerts rather than polling.
+**5–7. Launch, brief, and monitor.** Devs run in the background — inside [Herdr](https://github.com/herdrdev/herdr), each in its own one-pane tab you can watch and take over, or in Orca mode as orchestration workers whose terminals Orca tracks on whichever machine the lead picked. The lead acts on completion messages and monitor alerts rather than polling.
 
 **8. Review and ship.** On acceptance the dev pushes and opens a PR, and a **fresh** agent — never the author, so it isn't anchored on the dev's reasoning — runs `/code-review` on the PR number.
 
@@ -154,6 +167,7 @@ Agents message each other over the best channel the pair supports:
 | Claude Code → pi | `SendMessage` (pi runs `pi-claude-link`, launched with `--name`) |
 | pi → Claude Code | pi's `claude-link` tool |
 | any other pair | `herdr agent prompt` |
+| any pair in Orca mode, any machine | Orca mail: `orca orchestration send` (the brief is the worker spec; devs finish with `--type worker_done`) |
 
 The order matters because `herdr agent prompt` types into the receiver's terminal: if you are typing in that pane at the same moment, the two inputs get mixed. `SendMessage` and `claude-link` use Claude Code's cross-session sockets and never touch the terminal.
 
@@ -205,7 +219,20 @@ Never let a dev exceed 3 attempts, or the lead exceed 3 rounds of resend on one 
 
 ## Status tracking
 
-A markdown status table lives in your working notes (`notes/team-lead-<date>.md`, or `agent/reports/` outside a hyper space), updated on every state change, with columns `ref | title | model | state | worktree | notes` where state is one of todo, running, review, blocked, done.
+A markdown status table lives in your working notes (`notes/team-lead-<date>.md`, or `agent/reports/` outside a hyper space), updated on every state change, with columns `ref | title | model | state | machine | worktree | notes` where state is one of todo, running, review, blocked, done and `machine` is `local` or an Orca environment name. In Orca mode the Run id sits in the header above the table and `notes` holds each dev's dispatch id and terminal handle.
+
+## Orca mode
+
+With `ORCA_WORKSPACE_ID` set the lead uses [Orca](https://www.onorca.dev) instead of Herdr and can spread devs across every machine paired with Orca (the local one plus each remote server). The shape is:
+
+- **One Run per batch.** The lead's own terminal handle (`ORCA_TERMINAL_HANDLE`) is the coordinator and the `--from` sender for `run-create`, `worker-start` and `send`.
+- **Live load, no capacity file.** Before each dispatch the lead probes candidate machines (local inline; remote through a throwaway Orca terminal that prints `nproc`, `uptime` and free memory). Slots per machine are `ncpu / 2`, at most 2 heavy jobs, and a machine whose 1-minute load exceeds its CPU count takes no new dev. The least loaded machine with a free slot and the repo registered wins; ties go to local.
+- **Repo registration.** A remote machine is usable only when `orca project setups --environment <id>` lists the project. If it does not, the lead asks you before running `orca project setup-clone` (or `setup-existing-folder`), and leaves the machine out until then.
+- **Adopt, do not re-launch.** The dev's harness is started from `harnesses.yaml` in an Orca terminal (`terminal create --command`), then adopted with `worker-start --terminal <handle>`. The brief is the worker spec, so Orca delivers it; no typing into terminals. `worker-start --agent` is only a fallback for harnesses Orca knows natively.
+- **Completion.** Devs end with `orca orchestration send --type worker_done …`, which the lead receives through `orca orchestration check --wait`; the report file's `STATUS:` line is the second signal.
+- **Lead, merges, reviews stay local.** Remote machines run devs only.
+
+Remote terminals need `--environment <env-id>` on every `terminal wait|read|close` call and a `--worktree path:` under a registered project setup; the skill records these and other Orca quirks so a lead does not rediscover them.
 
 ## Bundled scripts
 
@@ -217,7 +244,7 @@ All live in the plugin and are invoked through the plugin root variable, never a
 check-deps.sh [--config <harnesses.yaml>]
 ```
 
-Checks the base CLIs, `herdr` when `HERDR_ENV=1`, every configured harness's CLI (`bin:` may explicitly name its executable), and `pi-claude-link` when pi is configured without `messaging: herdr`. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
+Checks the base CLIs, `herdr` when `HERDR_ENV=1`, the Orca CLI (and that `orca status` answers) when `ORCA_WORKSPACE_ID` is set, every configured harness's CLI (`bin:` may explicitly name its executable), and `pi-claude-link` when pi is configured without `messaging: herdr`. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
 
 ### `rebase-worktrees.sh`
 
@@ -232,20 +259,22 @@ By default it only touches PRs authored by the current `gh` user. Per-worktree o
 
 ### `team-status.sh`
 
-A one-shot status snapshot. **Requires `herdr`** — it looks each ref up as a Herdr agent — so automated monitoring is available only in Herdr mode.
+A one-shot status snapshot with two backends. In Herdr mode it **requires `herdr`** and looks each ref up as a Herdr agent named `<prefix><ref>`. In Orca mode (`--orca --run <run-id>`) it reads the Run's workers with `orca orchestration worker-list`, matches them to refs by task title (`<ref>: …`), and probes every machine named in the table's `machine` column. Plain mode has no automated monitoring.
 
 ```
 team-status.sh --table <path> --prefix <project>- [--budgets <path>]
                [--reports <dir>] [--alerts-only] [--state <file>] [--json]
+team-status.sh --table <path> --orca --run <run-id> [--budgets <path>]
+               [--reports <dir>] [--alerts-only] [--state <file>] [--json]
 ```
 
-It parses task refs from the first column of your status table and emits lines only for `OVER-BUDGET`, `BLOCKED`, `DONE`, `MISSING`, `LOAD`, and `HEAVY`. With `--state`, each alert fires once and emits `CLEARED` when it stops.
+It parses task refs from the first column of your status table and emits lines only for `OVER-BUDGET`, `BLOCKED`, `DONE`, `MISSING`, `LOAD`, and `HEAVY`; in Orca mode also `UNVERIFIABLE <ref>` (Orca cannot confirm the worker is alive; inspect, never treat as done) and `PROBE-FAILED <machine>`, and the `LOAD`/`HEAVY` lines name the machine. With `--state`, each alert fires once and emits `CLEARED` when it stops.
 
 The lead wraps this in a single monitor loop running about every 3 minutes, armed the moment the first dev launches — it's the backstop that catches a dev finishing without messaging.
 
 ### `stall-watch.sh`
 
-A token-free watchdog the lead starts once per session as a background shell. When nobody on a team has been working for `--quiet-min` minutes, it prompts the team's leader with each member's status; if the team stays quiet, it escalates once. `--snooze <leader> <minutes>` silences it while a team is legitimately waiting. Unnamed Herdr leaders use the live pane ID from `herdr pane current --current | jq -r .result.pane.pane_id` (not the possibly stale `$HERDR_PANE_ID`).
+Herdr only (Orca mode uses `orca orchestration check --wait` and the liveness verdicts above instead). A token-free watchdog the lead starts once per session as a background shell. When nobody on a team has been working for `--quiet-min` minutes, it prompts the team's leader with each member's status; if the team stays quiet, it escalates once. `--snooze <leader> <minutes>` silences it while a team is legitimately waiting. Unnamed Herdr leaders use the live pane ID from `herdr pane current --current | jq -r .result.pane.pane_id` (not the possibly stale `$HERDR_PANE_ID`).
 
 ```
 stall-watch.sh --team <leader-name-or-pane-id>='<project>-<glob>' [--team ...] --escalate <agent-name-or-pane-id> --quiet-min 15

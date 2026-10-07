@@ -2,13 +2,16 @@
 #
 # check-deps.sh — verify the CLI tooling the team-lead skill needs, in one call.
 #
-# Checks the base tools every team needs, Herdr when running inside it, and
-# whatever each harness in the saved harness config needs (its CLI, and for pi
+# Checks the base tools every team needs, Herdr when running inside it
+# (HERDR_ENV=1), the Orca CLI when running inside Orca (ORCA_WORKSPACE_ID set),
+# and whatever each harness in the saved harness config needs (its CLI, and for pi
 # the pi-claude-link extension unless the config says `messaging: herdr`). It
 # also validates each harness's `env:` block: variable names must be valid, and
 # every `defaults:` key must also be listed under `inherit:`.
 # Skills (worktrunk, code-review, herdr) cannot be checked from a shell; the
-# lead checks those against its own skills listing.
+# lead checks those against its own skills listing. Remote machines in Orca
+# mode are probed by the lead at inventory time, not here: this script only
+# covers the machine it runs on.
 #
 # Usage:
 #   check-deps.sh [--config <harnesses.yaml>]
@@ -53,6 +56,37 @@ fi
 
 if [ "${HERDR_ENV:-}" = 1 ]; then
   has_command herdr || report herdr "HERDR_ENV=1 is set but the herdr CLI is not on PATH"
+fi
+
+# Orca CLI resolution order, as documented by `orca skills get orca-cli`:
+# ORCA_CLI_COMMAND, orca-dev, orca-ide (Linux), orca; macOS also ships it inside
+# the app bundle, which is not on PATH by default. The first candidate whose
+# `status` succeeds wins: a stale /usr/local/bin/orca symlink can exist and fail
+# while the bundle binary works.
+orca_found=""
+find_orca() {
+  local candidate
+  for candidate in "${ORCA_CLI_COMMAND:-}" orca-dev orca-ide orca \
+      /Applications/Orca.app/Contents/Resources/bin/orca; do
+    [ -z "$candidate" ] && continue
+    [ -x "$candidate" ] || has_command "$candidate" || continue
+    orca_found="$candidate"
+    if "$candidate" status >/dev/null 2>&1; then printf '%s\n' "$candidate"; return 0; fi
+  done
+  return 1
+}
+
+if [ -n "${ORCA_WORKSPACE_ID:-}" ]; then
+  if ! find_orca >/dev/null; then
+    if [ -n "$orca_found" ]; then
+      report "orca status" "ORCA_WORKSPACE_ID is set but '$orca_found status' fails; is the Orca app running? (a stale /usr/local/bin/orca symlink fails this way; set ORCA_CLI_COMMAND to the working binary)"
+    else
+      report orca "ORCA_WORKSPACE_ID is set but no Orca CLI was found (ORCA_CLI_COMMAND, orca-dev, orca-ide, orca, or the Orca.app bundle)"
+    fi
+  fi
+  if [ "${HERDR_ENV:-}" = 1 ]; then
+    report "a single launch mode" "both HERDR_ENV=1 and ORCA_WORKSPACE_ID are set; ask the user which mode to use"
+  fi
 fi
 
 if [ -n "$config" ] && [ -f "$config" ]; then
