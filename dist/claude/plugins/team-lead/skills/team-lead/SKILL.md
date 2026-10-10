@@ -177,9 +177,9 @@ Routing rule of thumb: the cheapest harness that finishes in one or two attempts
 6. **Brief each dev** with the [dev brief template](#dev-brief-template). In Orca mode the brief travels as the worker spec; elsewhere it is sent as a message.
 7. **Monitor.** Act on completion notifications. Do not poll. Keep a status table (ref, dev, model, state, machine, worktree, last note).
 8. **Review** every delivery with the [review checklist](#review-checklist). Send back with specific findings, or accept.
-   Accepted means: the dev pushes and opens the PR against the project's base branch (template filled, Monday/issue link, human title). You decide readiness; do not wait for the user. Then spawn a **fresh** agent (not the dev, so it is not anchored on the dev's reasoning) that runs the `/code-review` skill on the PR number and returns the findings. Triage: real defects go back to the dev as a round; nits you may accept. Preview deployments (if the project has them, see the project skill) are the place to verify UI changes — hand the URL to a Haiku/Playwright checker when the change is visible.
+   Accepted means: the dev pushes and opens the PR against the project's base branch (template filled, Monday/issue link, human title). You decide readiness; do not wait for the user. Then spawn a **fresh** agent (not the dev, so it is not anchored on the dev's reasoning) that runs the `/code-review` skill on the PR number. The reviewer sends its findings **straight to the dev** and the two loop without you (see [Reviewers talk to devs](#reviewers-talk-to-devs)); you hear the ACCEPT, a dispute, or a third round that still blocks. Preview deployments (if the project has them, see the project skill) are the place to verify UI changes — hand the URL to a Haiku/Playwright checker when the change is visible.
 9. **Project-specific steps.** If the project skill loaded in step 0 defines extra steps before a PR is ready (release notes, changelog, demo, docs), run them through the dev; the project skill owns the how and the judgment rules.
-10. **Report** to the user: done / in review / blocked / not started, with links to branches or PRs.
+10. **Report** to the user: done / in review / blocked / not started, with links to branches or PRs. State changes and decisions only, one line each; never restate what an agent reported (the user can read the report file).
 
 ## Definition of DONE
 
@@ -231,7 +231,7 @@ A `DONE` alert, an idle status, or the word "done" is a claim. Run this before b
 2. **Verify state, not the story** (git facts, cheap enough for you or a Haiku verifier): branch exists off the right base (`git merge-base --is-ancestor origin/<base> HEAD`), commits present (`git log --oneline origin/<base>..HEAD`), working tree clean, `git diff --stat origin/<base>...HEAD` touches only expected areas, and **the base branch was not pushed to** — compare `origin/<base>` against the SHA you noted when briefing.
 3. **Re-run the gates yourself — once.** Devs verify only what they touched; this is the single full run. A Haiku verifier runs the project's verify command (from the repo's agent instructions: the single `verify` script when the project has one) in the worktree and returns counts only. Compare with the report; a mismatch is a finding.
 4. **Criteria → evidence.** Each acceptance criterion maps to a file/test; open questions in the report are answered by you or the user before acceptance.
-5. **Independent review** with the [review checklist](#review-checklist) → accept, or round N with `file:line` findings. Three rounds max, then escalate or ask the user.
+5. **Independent review** with the [review checklist](#review-checklist) → accept, or round N with `file:line` findings sent by the reviewer to the dev directly ([Reviewers talk to devs](#reviewers-talk-to-devs)). Three rounds max, then escalate or ask the user.
 6. **Ship on accept**: dev pushes, opens the PR (project template, identity note), fresh `/code-review` agent, project-skill extras, status table + tracker updated.
 7. **After its work is merged** (by anyone, PR or not): mark DONE in the table and tracker; check base-branch drift (hotfix to production ⇒ downstream branches behind — see [After a hotfix](#after-a-hotfix-to-production)); then run the [teardown checklist](#teardown-checklist) for the dev and close the dev agent and its tab — unless the user has been talking in that tab, in which case leave it and tell the user.
 8. **Retire a dev as soon as it has no remaining role**, merge or not: when its task is reassigned to another agent (escalation, handoff to a peer lead), when its branch is now owned by someone else, or when its task is cancelled. An idle session on a branch another agent is rewriting is a stale actor and wasted memory. Confirm its work is committed and pushed (or explicitly discarded), then stop the agent and close its tab (same user-in-tab exception as above), and note "agent retired; branch owned by <who>" in the status table. Stop its containers and servers now (teardown checklist items 1–2); the worktree stays until the branch is merged or dropped, then run the rest of the checklist.
@@ -272,6 +272,16 @@ Before accepting a delivery, verify (run commands yourself or dispatch a Haiku r
 - [ ] Push + PR only after the checklist passes; then independent `/code-review` on the PR.
 
 Reject with concrete findings (`file:line`, what is wrong, what "fixed" looks like) — **all findings in one round**: every round costs the dev a re-test cycle (often 10–25 min), so batch the Haiku review, the fact-check, and your own reading before sending anything back. Accept with a one-line note in the status table.
+
+## Reviewers talk to devs
+
+You are a team lead, not a relay. Review rounds run **between the reviewer and the dev**; nothing passes through you.
+
+- **Brief the reviewer with the dev's address**: its agent name (and machine, when it runs elsewhere) and how to reach it (`herdr [--machine <m>] agent prompt <dev> "..."`, SendMessage for a Claude Code session, the harness's messaging otherwise).
+- **CHANGES**: the reviewer writes its report file, then messages the dev: report path, one line per finding, "push a fix, then message me for re-review". It stays alive for the next round. No message to you.
+- **The dev** fixes, pushes, runs its gates and messages the reviewer back. It does not copy you on review rounds. Say this in the dev brief.
+- **You hear only**: PR open, ACCEPT, a dispute between dev and reviewer (you rule), and round 3 still BLOCKING (escalate the model, see [Handling "stuck"](#handling-stuck)). A staged review (cheap reviewer first, strong reviewer final) follows the same rule at each stage; you launch the next stage on ACCEPT.
+- **Status lines are one sentence** (state + PR). Test counts, change lists and finding details stay in report files. When you report to the user, report state changes and decisions; never paraphrase an agent's report.
 
 ## Squad Leader handoff
 
