@@ -260,6 +260,17 @@ rebase-worktrees.sh --base <branch> [--space <path>] [--dry-run]
 
 By default it only touches PRs authored by the current `gh` user. Per-worktree outcomes are `OK`, `PUSHED`, `SKIPPED-dirty`, `SKIPPED-no-worktree`, or `CONFLICT` (left mid-rebase, deliberately not aborted).
 
+### `retire-agent.sh`
+
+Herdr only (Orca mode retires with `worker-stop` and `worker-release`). The one path for retiring a dev: it stops the agent the way its harness expects (`/exit` for Claude Code, `ctrl+d` for pi, `ctrl+c` twice for Codex), escalates once with `esc` and `ctrl+c` if the agent is mid-turn, waits until Herdr no longer lists it, then closes its tab. A retired dev whose tab is still open is not retired.
+
+```
+retire-agent.sh <agent-name-or-pane-id> [--machine <label>] [--keep-tab]
+                [--worktree <branch> [--force]] [--timeout <seconds>]
+```
+
+`--worktree` also runs `wt remove` from the current directory (the space root); with `--machine` it runs over SSH on that machine, in the same path. A pane id works for a tab whose agent already exited. Exit codes: `0` retired, `1` bad arguments, `2` no such agent or pane, `3` the agent did not stop in time (tab left open for a human), `4` worktree removal failed, `5` the tab did not close.
+
 ### `team-status.sh`
 
 A one-shot status snapshot with two backends. In Herdr mode it **requires `herdr`** and looks each ref up as a Herdr agent named `<prefix><ref>`. In Orca mode (`--orca --run <run-id>`) it reads the Run's workers with `orca orchestration worker-list`, matches them to refs by task title (`<ref>: …`), and probes every machine named in the table's `machine` column. Plain mode has no automated monitoring.
