@@ -21,6 +21,7 @@ A marketplace of plugins and skills that tutor AI agents.
 | **sync-skills** | One shared `~/.agents/skills` folder for Claude Code, Pi, Kimi, Codex and agy with no duplicate skill names: real per-config Claude skills folders with per-skill links, claude.ai-synced skills linked once. |
 | **okf** | Create, validate, and enrich Open Knowledge Format (OKF) bundles — knowledge as markdown files with YAML frontmatter, incl. v0.2 provenance, trust, and Attested Computations. |
 | **obscura** | Drive the Obscura headless browser: fetch and scrape JavaScript-rendered pages, run Playwright scripts and E2E suites against its CDP server without bundled Chromium, and watch the session live. |
+| **papiro** | Decision sheets: many questions with the agent's suggested answers become one page where you change only what you disagree with, add notes, and copy a short reply back into the chat. |
 | **hyper** | Hyper Coding workflow support: project spaces (a bare repo wrapping all of a project's worktrees), per-edit integration with a project's own linters/typecheckers, spec-driven planning, and template-driven generation. Sourced externally from [hyper-coding](https://github.com/svallory/hyper-coding). |
 
 ### Ghostwriter
@@ -93,6 +94,16 @@ Ask to "fetch this page with obscura" or "run the e2e suite on obscura". Require
 
 See [obscura README](src/plugins/obscura/README.md) for the scripts, the Playwright Test fixture, and the known gaps.
 
+### Papiro
+
+```
+/plugin install papiro@tutor
+```
+
+Run `/papiro` to turn the open questions in the conversation into a decision sheet, or ask for them "as a list with defaults". You answer on the page and paste back one short reply. Requires `bun` or `node`.
+
+See [papiro README](src/plugins/papiro/README.md) for the page, the reply format and the files.
+
 ## Individual skills via the skills CLI
 
 The standalone skills are also installable with the [skills CLI](https://skills.sh) (works with Claude Code, Codex, Cursor, and others):
@@ -101,7 +112,7 @@ The standalone skills are also installable with the [skills CLI](https://skills.
 npx skills add svallory/tutor
 ```
 
-This lists `okf-open-knowledge-format`, `team-lead`, and `demo-video`. Ghostwriter's internal helper skills (`detector-red-flags`, `surgical-update`, `writer-examples`) are marked internal and hidden by default — they only make sense inside the ghostwriter plugin's agent pipeline.
+This lists `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura` and `decision-sheet`. Ghostwriter's internal helper skills (`detector-red-flags`, `surgical-update`, `writer-examples`) are marked internal and hidden by default — they only make sense inside the ghostwriter plugin's agent pipeline.
 
 The repo's [skills.sh](https://skills.sh/svallory/tutor) page layout is configured in [skills.sh.json](skills.sh.json).
 

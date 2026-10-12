@@ -43,7 +43,7 @@ plugins:
     platforms: [claude, kimi]
 
 skills:
-  public: [okf-open-knowledge-format, team-lead, demo-video, decompose, sync-skills, obscura]
+  public: [okf-open-knowledge-format, team-lead, demo-video, decompose, sync-skills, obscura, decision-sheet]
   groups:
     - title: Knowledge
       description: Structure organizational knowledge as agent-readable markdown bundles (Open Knowledge Format).
@@ -63,3 +63,6 @@ skills:
     - title: Browser Automation
       description: Scrape JavaScript-rendered pages and run Playwright on the Obscura headless browser.
       skills: [obscura]
+    - title: Decisions
+      description: Turn many questions with suggested answers into one page the user answers, then paste back a short reply.
+      skills: [decision-sheet]

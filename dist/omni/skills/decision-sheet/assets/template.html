@@ -1,0 +1,573 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: a ledger. Each group is one sheet of rows, and every row reads left to
+   right, question then decision, so the decisions line up in one column you can
+   scan. At rest the page is quiet; color only marks what moved: changed rows,
+   open questions, missing notes. */
+:root {
+  --paper: #F3F5F8;
+  --sheet: #FFFFFF;
+  --ink: #141B26;
+  --muted: #576276;
+  --faint: #8C96A8;
+  --rule: #DFE3EA;
+  --accent: #2446C9;
+  --accent-soft: #E6ECFC;
+  --accent-line: #B8C6F3;
+  --on-accent: #FFFFFF;
+  --change: #B54A08;
+  --change-soft: #FDEEDC;
+  --block: #C2272D;
+  --block-soft: #FCE7E6;
+  --font-ui: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 8px;
+  --pick-width: 19.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0E131A; --sheet: #151B25; --ink: #E7EBF1; --muted: #9BA5B6; --faint: #6D778A; --rule: #262F3D;
+    --accent: #91A7FF; --accent-soft: #1C2645; --accent-line: #33447A; --on-accent: #0E131A;
+    --change: #F2A35E; --change-soft: #372513; --block: #FF8C83; --block-soft: #3D1918;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0E131A; --sheet: #151B25; --ink: #E7EBF1; --muted: #9BA5B6; --faint: #6D778A; --rule: #262F3D;
+  --accent: #91A7FF; --accent-soft: #1C2645; --accent-line: #33447A; --on-accent: #0E131A;
+  --change: #F2A35E; --change-soft: #372513; --block: #FF8C83; --block-soft: #3D1918;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 400 1rem/1.5 var(--font-ui); }
+/* break-word, not anywhere: anywhere lets a flex or grid item shrink until
+   every word breaks mid-way ("homebo t.yml"). break-word only breaks a word
+   that can't fit on a line of its own. */
+code { font: 500 0.84em var(--font-mono); background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0.05em 0.3em; border-radius: 4px; overflow-wrap: break-word; }
+strong { font-weight: 700; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Sticky bar: name, tally, copy. */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--rule); }
+.bar-in { max-width: 62rem; margin: 0 auto; padding-inline: 1rem; padding-block: 0.7rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; }
+.bar-title { flex: 1 1 14rem; min-width: 0; }
+.eyebrow { font: 600 0.68rem/1 var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 800 clamp(1.2rem, 2.6vw, 1.45rem)/1.15 var(--font-ui); letter-spacing: -0.01em; margin: 0.3rem 0 0; text-wrap: balance; }
+.tally { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.chip { font: 600 0.72rem/1 var(--font-mono); font-variant-numeric: tabular-nums; padding: 0.42rem 0.6rem; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
+.chip.flipped { background: var(--change-soft); color: var(--change); border-color: transparent; }
+.chip.answered, .chip.noted { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.chip.open, .chip.missing { background: var(--block-soft); color: var(--block); border-color: transparent; }
+
+.btn { font: 700 0.9rem/1 var(--font-ui); padding: 0.72rem 1.05rem; border-radius: var(--radius); border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--accent-line); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.primary.blocked { background: var(--sheet); border-color: var(--block); color: var(--block); }
+.btn.armed { border-color: var(--block); color: var(--block); }
+
+/* Page */
+.wrap { max-width: 62rem; margin: 0 auto; padding-inline: 1rem; padding-block: 1.5rem 5rem; }
+.intro p { margin: 0 0 0.6rem; max-width: 68ch; }
+.howto { color: var(--muted); font-size: 0.92rem; margin: 0; max-width: 68ch; }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; vertical-align: 0.15em; margin-inline: 0.1rem; }
+
+.group { margin-top: 2.25rem; }
+.group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.75rem; padding-inline: 0.15rem; }
+.group-head h2 { font: 800 1.12rem/1.2 var(--font-ui); letter-spacing: -0.005em; margin: 0; text-wrap: balance; }
+.group-count { font: 500 0.72rem/1 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-desc { flex-basis: 100%; color: var(--muted); font-size: 0.9rem; margin: 0.15rem 0 0; max-width: 68ch; }
+.rows { margin-top: 0.7rem; background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+
+/* A row: id | question | decision, with the note under question and decision. */
+.q { display: grid; grid-template-columns: 2rem minmax(0, 1fr); grid-template-areas: "id text" ". pick" ". note"; column-gap: 0.8rem; padding: 0.95rem 1rem; }
+.q + .q { border-top: 1px solid var(--rule); }
+.q[data-state="flipped"] { box-shadow: inset 3px 0 0 var(--change); }
+.q[data-state="answered"] { box-shadow: inset 3px 0 0 var(--accent); }
+.q[data-state="open"], .q.missing { box-shadow: inset 3px 0 0 var(--block); }
+.q-id { grid-area: id; font: 600 0.78rem/1.6 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--faint); text-align: right; overflow-wrap: anywhere; }
+.q[data-state="flipped"] .q-id { color: var(--change); }
+.q[data-state="answered"] .q-id { color: var(--accent); }
+.q[data-state="open"] .q-id, .q.missing .q-id { color: var(--block); }
+.q-body { grid-area: text; min-width: 0; }
+.q-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.55rem; }
+.q-title { font: 600 1rem/1.4 var(--font-ui); margin: 0; min-width: 0; }
+.pill { font: 600 0.64rem/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.28rem 0.42rem; border-radius: 4px; white-space: nowrap; }
+.pill.flipped { background: var(--change-soft); color: var(--change); }
+.pill.answered { background: var(--accent-soft); color: var(--accent); }
+.pill.open, .pill.missing { background: var(--block-soft); color: var(--block); }
+.q-detail { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; max-width: 68ch; }
+
+.q-pick { grid-area: pick; display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; margin-top: 0.75rem; }
+.q-note { grid-area: note; margin-top: 0.7rem; }
+@media (min-width: 46rem) {
+  .q { grid-template-columns: 2rem minmax(0, 1fr) var(--pick-width); grid-template-areas: "id text pick" ". note note"; column-gap: 1.25rem; }
+  .q-pick { margin-top: 0; }
+  .note-toggle { align-self: flex-end; }
+}
+
+/* A row whose options have descriptions: the options as a list of short
+   titles, and beside it a box with the picked option's description. Hovering
+   or focusing another option previews its description there. On a phone the
+   box sits under the list. */
+.q.rich { grid-template-areas: "id text" ". pick" ". desc" ". note"; }
+.q-desc { grid-area: desc; min-width: 0; margin-top: 0.6rem; padding: 0.75rem 0.95rem 0.85rem; display: flex; flex-direction: column; gap: 0.3rem; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius); }
+.q-desc.preview { background: var(--sheet); border-style: dashed; border-color: var(--accent-line); }
+.desc-tag { font: 600 0.64rem/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.q-desc.preview .desc-tag { color: var(--accent); }
+.desc-title { margin: 0; font: 700 0.95rem/1.35 var(--font-ui); }
+.desc-title:empty { display: none; }
+.desc-body { margin: 0; font-size: 0.9rem; max-width: 62ch; }
+.desc-body.none { color: var(--faint); }
+@media (min-width: 46rem) {
+  .q.rich { grid-template-columns: 2rem fit-content(17rem) minmax(0, 1fr); grid-template-areas: "id text text" ". pick desc" ". note note"; }
+  .q.rich .q-pick, .q.rich .q-desc { margin-top: 0.75rem; }
+  .q.rich .note-toggle { align-self: flex-start; }
+}
+
+/* Options: a segmented control, or a stack when the labels are long. */
+.opts { display: flex; }
+.opts.stack { flex-direction: column; }
+.opts input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.opt { flex: 1 1 auto; position: relative; display: flex; align-items: center; justify-content: center; gap: 0.4rem; min-width: 0; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); font: 600 0.86rem/1.25 var(--font-ui); text-align: center; cursor: pointer; }
+/* One flex item for the whole label, so its text and code wrap as a line. */
+.opt-text { min-width: 0; }
+.opts:not(.stack) .opt:not(:first-of-type) { margin-left: -1px; }
+.opts:not(.stack) .opt:first-of-type { border-radius: var(--radius) 0 0 var(--radius); }
+.opts:not(.stack) .opt:last-of-type { border-radius: 0 var(--radius) var(--radius) 0; }
+.opts.stack .opt { justify-content: flex-start; text-align: left; }
+.opts.stack .opt:not(:first-of-type) { margin-top: -1px; }
+.opts.stack .opt:first-of-type { border-radius: var(--radius) var(--radius) 0 0; }
+.opts.stack .opt:last-of-type { border-radius: 0 0 var(--radius) var(--radius); }
+.opt:hover { background: color-mix(in srgb, var(--accent) 6%, var(--sheet)); }
+.opt.other { color: var(--muted); font-weight: 500; }
+.opt.sugg::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.6; }
+.opts input:checked + .opt { z-index: 1; background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); font-weight: 700; }
+.q[data-state="flipped"] .opts input:checked + .opt { background: var(--change); border-color: var(--change); color: var(--on-accent); }
+.q[data-state="answered"] .opts input:checked + .opt { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.opts input:checked + .opt code { background: transparent; color: inherit; }
+
+.note-toggle { align-self: flex-start; background: none; border: 0; padding: 0.15rem 0; color: var(--muted); font: 600 0.8rem/1.2 var(--font-ui); cursor: pointer; }
+.note-toggle:hover { color: var(--accent); }
+textarea { display: block; width: 100%; font: 0.93rem/1.45 var(--font-ui); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 0.55rem 0.7rem; resize: vertical; }
+textarea::placeholder { color: var(--faint); }
+textarea.answer { margin-top: 0.7rem; }
+textarea[aria-invalid="true"] { border-color: var(--block); box-shadow: 0 0 0 3px var(--block-soft); }
+.note-hint { margin: 0.35rem 0 0; font-size: 0.82rem; font-weight: 600; color: var(--block); }
+.btn:focus-visible, .note-toggle:focus-visible, textarea:focus-visible, .check input:focus-visible,
+.opts input:focus-visible + .opt { outline: 2px solid var(--accent); outline-offset: 2px; z-index: 2; }
+
+/* Reply */
+.reply { margin-top: 2.75rem; padding: 1.15rem; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); }
+.reply h2 { font: 800 1.12rem/1.2 var(--font-ui); margin: 0; }
+.reply > p { margin: 0.3rem 0 0.8rem; color: var(--muted); font-size: 0.92rem; }
+.check { display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; cursor: pointer; }
+#reply-text { margin-top: 0.7rem; font: 500 0.8rem/1.55 var(--font-mono); background: var(--paper); min-height: 9rem; }
+.reply-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 0.8rem; }
+
+/* Copy feedback, visible wherever the button was. */
+#copy-status { position: fixed; z-index: 10; left: 50%; bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: min(34rem, calc(100% - 2rem)); padding: 0.65rem 0.95rem; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 0.9rem; font-weight: 600; box-shadow: 0 8px 28px rgb(0 0 0 / 0.2); }
+#copy-status.bad { background: var(--block); color: var(--on-accent); }
+#copy-status:empty { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .opt, .btn, .q-id, .chip { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
+  #copy-status { transition: opacity 160ms ease; }
+}
+</style>
+
+<header class="bar">
+  <div class="bar-in">
+    <div class="bar-title">
+      <div class="eyebrow" id="eyebrow">Decision sheet</div>
+      <h1 id="title"></h1>
+    </div>
+    <div class="tally" id="tally" aria-live="polite"></div>
+    <button type="button" class="btn primary" id="copy-top" aria-describedby="copy-status">Copy reply</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="intro" id="intro"></div>
+  <p class="howto">Every question starts on my suggestion, marked <span class="dot" aria-hidden="true"></span><span class="sr">with a dot</span>. Change only what you disagree with. <strong>Something else</strong> needs a note saying what you want instead. Then press <strong>Copy reply</strong> and paste it in the chat.</p>
+  <div id="groups"></div>
+
+  <section class="reply" aria-labelledby="reply-h">
+    <h2 id="reply-h">Your reply</h2>
+    <p>Only changes, notes and unanswered questions go in. Anything left out stays as suggested.</p>
+    <label class="check"><input type="checkbox" id="include-all"> Also list the answers that match my suggestion</label>
+    <textarea id="reply-text" rows="9" readonly aria-label="Reply to paste in the chat"></textarea>
+    <div class="reply-actions">
+      <button type="button" class="btn primary" id="copy-bottom" aria-describedby="copy-status">Copy reply</button>
+      <button type="button" class="btn" id="reset">Reset answers and notes</button>
+    </div>
+  </section>
+</main>
+<div id="copy-status" role="status"></div>
+
+<script type="application/json" id="form-data">__FORM_DATA__</script>
+<script>
+(() => {
+  const form = JSON.parse(document.getElementById('form-data').textContent);
+  const OTHER = '__other__';
+  const OTHER_LABEL = 'Something else';
+  const questions = form.groups.flatMap((g) => g.questions);
+  for (const q of questions) {
+    q.choices = q.type !== 'choice' ? []
+      : q.other ? [...q.options, { value: OTHER, label: OTHER_LABEL, description: '' }] : q.options;
+  }
+  const byKey = new Map(questions.map((q) => [q.key, q]));
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  const $ = (id) => document.getElementById(id);
+  const PREFIX = `decision-sheet:${form.id}:`;
+  const STORE = PREFIX + form.version;
+
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const plain = (s) => String(s).replace(/`([^`]+)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\s+/g, ' ').trim();
+  const oneLine = (s) => String(s).trim().replace(/\s*\n\s*/g, ' / ');
+  const short = (s, n = 64) => {
+    if (s.length <= n) return s;
+    const cut = s.slice(0, n);
+    const space = cut.lastIndexOf(' ');
+    return `${(space > n * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.:;]+$/, '')}…`;
+  };
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  // Drafts live in this browser only, keyed by question id so they survive a
+  // new version of the sheet. Version 1 drafts were keyed by position (q1, q2…).
+  const state = { answers: {}, notes: {}, includeAll: false };
+  function readDraft() {
+    try {
+      const own = localStorage.getItem(STORE);
+      if (own) return JSON.parse(own);
+      let best = null;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(PREFIX) || k === STORE) continue;
+        const d = JSON.parse(localStorage.getItem(k) || 'null');
+        if (d && typeof d === 'object' && (!best || (d.savedAt || 0) > (best.savedAt || 0))) best = d;
+      }
+      return best;
+    } catch { return null; }
+  }
+  function applyDraft(d) {
+    if (!d || typeof d !== 'object') return;
+    const find = d.v === 2 ? (k) => byId.get(k) : (k) => byKey.get(k);
+    for (const [k, v] of Object.entries(d.answers || {})) { const q = find(k); if (q && typeof v === 'string') state.answers[q.key] = v; }
+    for (const [k, v] of Object.entries(d.notes || {})) { const q = find(k); if (q && typeof v === 'string') state.notes[q.key] = v; }
+    state.includeAll = d.includeAll === true;
+  }
+  const draft = () => {
+    const answers = {};
+    const notes = {};
+    for (const q of questions) {
+      answers[q.id] = state.answers[q.key];
+      if (state.notes[q.key]) notes[q.id] = state.notes[q.key];
+    }
+    return { v: 2, answers, notes, includeAll: state.includeAll, savedAt: Date.now() };
+  };
+  // Drafts of earlier versions are never deleted: they are the backup if a
+  // carry-over ever goes wrong, and they are small.
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(draft())); } catch {} };
+
+  const hotData = window.claude?.hot?.data;
+  applyDraft(hotData && hotData.v === 2 ? hotData : readDraft());
+  window.claude?.hot?.snapshot?.(draft);
+  for (const q of questions) {
+    const a = state.answers[q.key];
+    const valid = typeof a === 'string' && (q.type === 'text' || q.choices.some((o) => o.value === a));
+    if (!valid) state.answers[q.key] = q.suggested;
+    if (typeof state.notes[q.key] !== 'string') state.notes[q.key] = '';
+  }
+
+  // open: no answer. kept: same as suggested. flipped: differs from it.
+  // answered: no suggestion was given and the user answered.
+  function stateOf(q) {
+    const a = q.type === 'text' ? state.answers[q.key].trim() : state.answers[q.key];
+    const s = q.type === 'text' ? q.suggested.trim() : q.suggested;
+    if (!a) return 'open';
+    if (!s) return 'answered';
+    return a === s ? 'kept' : 'flipped';
+  }
+  const missingNote = (q) => state.answers[q.key] === OTHER && !state.notes[q.key].trim();
+  const optionLabel = (q, value) => q.type === 'text'
+    ? `"${oneLine(value)}"`
+    : plain(q.choices.find((o) => o.value === value)?.label ?? value);
+
+  function buildReply() {
+    const lines = [];
+    const open = [];
+    const n = { kept: 0, flipped: 0, answered: 0, open: 0, noted: 0 };
+    for (const q of questions) {
+      const s = stateOf(q);
+      const a = state.answers[q.key];
+      const note = oneLine(state.notes[q.key]);
+      const name = `${q.id} ${short(plain(q.title))}`;
+      const tail = note ? ` Note: ${note}` : missingNote(q) ? ' Note: (missing)' : '';
+      n[s]++;
+      if (note) n.noted++;
+      if (s === 'flipped') lines.push(`- ${name}: ${optionLabel(q, a)} (suggested: ${optionLabel(q, q.suggested)}).${tail}`);
+      else if (s === 'answered') lines.push(`- ${name}: ${optionLabel(q, a)}.${tail}`);
+      else if (s === 'open') note ? lines.push(`- ${name}: no answer.${tail}`) : open.push(q.id);
+      else if (note || state.includeAll) lines.push(`- ${name}: ${optionLabel(q, a)}, as suggested.${tail}`);
+    }
+    if (!lines.length && !open.length) return `${form.title}: all ${questions.length} as suggested.`;
+    const parts = [];
+    if (n.flipped) parts.push(`${n.flipped} changed`);
+    if (n.answered) parts.push(`${n.answered} answered`);
+    if (n.noted) parts.push(plural(n.noted, 'note', 'notes'));
+    if (n.kept) parts.push(`${n.kept} as suggested`);
+    if (n.open) parts.push(`${n.open} open`);
+    const out = [`${form.title}: ${parts.join(', ')}.`, ...lines];
+    if (open.length) out.push(`Still open: ${open.join(', ')}`);
+    return out.join('\n');
+  }
+
+  // Render
+  $('title').textContent = form.title;
+  $('eyebrow').textContent = `Decision sheet · ${plural(questions.length, 'question', 'questions')}`;
+  $('intro').innerHTML = form.intro
+    ? form.intro.split(/\n\s*\n/).map((p) => `<p>${inline(p.trim())}</p>`).join('')
+    : '';
+  const groupsEl = $('groups');
+  for (const g of form.groups) {
+    const section = document.createElement('section');
+    section.className = 'group';
+    if (g.title || g.description) {
+      section.innerHTML = `<div class="group-head">${g.title ? `<h2>${inline(g.title)}</h2>` : ''}`
+        + `<span class="group-count">${plural(g.questions.length, 'question', 'questions')}</span>`
+        + (g.description ? `<p class="group-desc">${inline(g.description)}</p>` : '')
+        + '</div>';
+    }
+    const rows = document.createElement('div');
+    rows.className = 'rows';
+    for (const q of g.questions) {
+      const art = document.createElement('article');
+      art.className = 'q';
+      art.id = q.key;
+      const rich = q.choices.some((o) => o.description);
+      if (rich) art.classList.add('rich');
+      const labels = q.choices.map((o) => plain(o.label).length);
+      const stack = rich || labels.some((n) => n > 18) || labels.reduce((a, b) => a + b, 0) > 32;
+      const control = q.type === 'text'
+        ? `<textarea class="answer" id="${q.key}-a" rows="2" placeholder="${esc(q.placeholder || 'Your answer')}" aria-labelledby="${q.key}-t"></textarea>`
+        : `<div class="opts${stack ? ' stack' : ''}" role="radiogroup" aria-labelledby="${q.key}-t">${q.choices.map((o, i) => {
+            const cls = ['opt', o.value === q.suggested ? 'sugg' : '', o.value === OTHER ? 'other' : ''].filter(Boolean).join(' ');
+            const id = `${q.key}-o${i}`;
+            // The box beside the list is for sighted readers; screen readers
+            // get each option's description with the option itself.
+            const desc = rich && o.description ? `<span class="sr" id="${id}-d">${esc(plain(o.description))}</span>` : '';
+            return `<input type="radio" name="${q.key}" id="${id}" value="${esc(o.value)}"${desc ? ` aria-describedby="${id}-d"` : ''}>`
+              + `<label for="${id}" class="${cls}"${o.value === q.suggested ? ' title="My suggestion"' : ''}><span class="opt-text">${inline(o.label)}</span>${o.value === q.suggested ? '<span class="sr"> (suggested)</span>' : ''}</label>${desc}`;
+          }).join('')}</div>`;
+      art.innerHTML = `<div class="q-id" aria-hidden="true">${esc(q.id)}</div>
+        <div class="q-body">
+          <div class="q-head"><h3 class="q-title" id="${q.key}-t"><span class="sr">${esc(q.id)}. </span>${inline(q.title)}</h3><span class="pill" hidden></span></div>
+          ${q.detail ? `<p class="q-detail">${inline(q.detail)}</p>` : ''}
+        </div>
+        <div class="q-pick">
+          ${q.type === 'text' ? '' : control}
+          <button type="button" class="note-toggle" aria-expanded="false" aria-controls="${q.key}-w">Add note</button>
+        </div>
+        ${rich ? `<div class="q-desc" id="${q.key}-d" aria-hidden="true"><div class="desc-tag"></div><p class="desc-title"></p><p class="desc-body"></p></div>` : ''}
+        <div class="q-note" id="${q.key}-w" hidden>
+          <textarea class="note" id="${q.key}-n" rows="2" aria-label="Note on ${esc(q.id)}"></textarea>
+          <p class="note-hint" id="${q.key}-h" hidden>Say what you want instead. Copy reply waits for this note.</p>
+        </div>`;
+      // A text answer sits under the question, where there is room to write.
+      if (q.type === 'text') art.querySelector('.q-body').insertAdjacentHTML('beforeend', control);
+      rows.append(art);
+    }
+    section.append(rows);
+    groupsEl.append(section);
+  }
+
+  function syncInputs(q) {
+    if (q.type === 'text') $(`${q.key}-a`).value = state.answers[q.key];
+    else q.choices.forEach((o, i) => { $(`${q.key}-o${i}`).checked = o.value === state.answers[q.key]; });
+    $(`${q.key}-n`).value = state.notes[q.key];
+    $(`${q.key}-w`).hidden = !state.notes[q.key] && state.answers[q.key] !== OTHER;
+  }
+
+  // The description box shows the picked option, or the one under the
+  // pointer or keyboard focus while it is there.
+  function showDesc(q, value = state.answers[q.key]) {
+    const box = $(`${q.key}-d`);
+    if (!box) return;
+    const o = q.choices.find((x) => x.value === value);
+    const preview = !!o && value !== state.answers[q.key];
+    box.classList.toggle('preview', preview);
+    const tag = !o ? 'Nothing picked yet' : preview ? 'Not picked' : 'Picked';
+    box.querySelector('.desc-tag').textContent = o && o.value === q.suggested ? `${tag} · my suggestion` : tag;
+    box.querySelector('.desc-title').innerHTML = o ? inline(o.label) : '';
+    const body = box.querySelector('.desc-body');
+    const text = !o ? 'Pick an option to see what it means.'
+      : o.value === OTHER ? 'Write what you want in the note. Copy reply waits for it.'
+      : o.description;
+    body.innerHTML = text ? inline(text) : 'No more detail on this one.';
+    body.classList.toggle('none', !o || !o.description);
+  }
+
+  function paintRow(q) {
+    const art = $(q.key);
+    const s = stateOf(q);
+    const missing = missingNote(q);
+    const other = state.answers[q.key] === OTHER;
+    art.dataset.state = s;
+    art.classList.toggle('missing', missing);
+    const pill = art.querySelector('.pill');
+    pill.textContent = missing ? 'needs a note' : { flipped: 'changed', open: 'needs you', answered: 'answered' }[s] || '';
+    pill.className = `pill ${missing ? 'missing' : s}`;
+    pill.hidden = !pill.textContent;
+    showDesc(q);
+    const wrap = $(`${q.key}-w`);
+    const area = $(`${q.key}-n`);
+    const toggle = art.querySelector('.note-toggle');
+    if (other) wrap.hidden = false;
+    toggle.hidden = other;
+    toggle.setAttribute('aria-expanded', String(!wrap.hidden));
+    toggle.textContent = !wrap.hidden ? 'Hide note' : state.notes[q.key].trim() ? 'Show note' : '+ Add note';
+    area.placeholder = other ? 'What do you want instead? Required.' : 'Note (optional)';
+    area.required = other;
+    area.setAttribute('aria-invalid', String(missing));
+    $(`${q.key}-h`).hidden = !missing;
+  }
+
+  function paintSummary() {
+    const n = { kept: 0, flipped: 0, answered: 0, open: 0 };
+    let noted = 0;
+    let missing = 0;
+    for (const q of questions) {
+      n[stateOf(q)]++;
+      if (state.notes[q.key].trim()) noted++;
+      if (missingNote(q)) missing++;
+    }
+    const chips = [];
+    if (n.flipped) chips.push(['flipped', `${n.flipped} changed`]);
+    if (n.answered) chips.push(['answered', `${n.answered} answered`]);
+    if (noted) chips.push(['noted', plural(noted, 'note', 'notes')]);
+    if (missing) chips.push(['missing', `${missing} ${missing === 1 ? 'needs a note' : 'need a note'}`]);
+    if (n.open) chips.push(['open', `${n.open} open`]);
+    chips.push(['kept', `${n.kept} as suggested`]);
+    $('tally').innerHTML = chips.map(([cls, text]) => `<span class="chip ${cls}">${text}</span>`).join('');
+    for (const id of ['copy-top', 'copy-bottom']) $(id).classList.toggle('blocked', missing > 0);
+    $('reply-text').value = buildReply();
+  }
+
+  const paintAll = () => { questions.forEach(paintRow); paintSummary(); };
+  questions.forEach(syncInputs);
+  $('include-all').checked = state.includeAll;
+  paintAll();
+
+  const qOf = (el) => byKey.get(el.closest('.q')?.id);
+  groupsEl.addEventListener('change', (e) => {
+    const q = qOf(e.target);
+    if (!q || e.target.type !== 'radio') return;
+    state.answers[q.key] = e.target.value;
+    paintRow(q); paintSummary(); save();
+    if (e.target.value === OTHER && !state.notes[q.key].trim()) $(`${q.key}-n`).focus();
+  });
+  groupsEl.addEventListener('input', (e) => {
+    const q = qOf(e.target);
+    if (!q) return;
+    if (e.target.classList.contains('answer')) state.answers[q.key] = e.target.value;
+    else if (e.target.classList.contains('note')) state.notes[q.key] = e.target.value;
+    else return;
+    paintRow(q); paintSummary(); save();
+  });
+  groupsEl.addEventListener('click', (e) => {
+    const toggle = e.target.closest('.note-toggle');
+    if (!toggle) return;
+    const q = qOf(toggle);
+    const wrap = $(`${q.key}-w`);
+    wrap.hidden = !wrap.hidden;
+    paintRow(q);
+    if (!wrap.hidden) $(`${q.key}-n`).focus();
+  });
+  // Previews in the description box. mouseover and focusin bubble, so one
+  // listener covers every row.
+  const optionUnder = (el) => {
+    const label = el.closest?.('.q.rich label.opt');
+    return label ? $(label.htmlFor) : el.matches?.('.q.rich input[type="radio"]') ? el : null;
+  };
+  groupsEl.addEventListener('mouseover', (e) => {
+    const input = optionUnder(e.target);
+    if (input) showDesc(qOf(input), input.value);
+  });
+  groupsEl.addEventListener('mouseout', (e) => {
+    const label = e.target.closest?.('.q.rich label.opt');
+    if (label && !label.contains(e.relatedTarget)) showDesc(qOf(label));
+  });
+  groupsEl.addEventListener('focusin', (e) => {
+    const input = optionUnder(e.target);
+    if (input) showDesc(qOf(input), input.value);
+  });
+  groupsEl.addEventListener('focusout', (e) => {
+    if (optionUnder(e.target)) showDesc(qOf(e.target));
+  });
+  $('include-all').addEventListener('change', (e) => {
+    state.includeAll = e.target.checked;
+    paintSummary(); save();
+  });
+
+  let sayTimer = null;
+  const say = (text, bad = false) => {
+    const el = $('copy-status');
+    el.textContent = text;
+    el.classList.toggle('bad', bad);
+    clearTimeout(sayTimer);
+    if (text) sayTimer = setTimeout(() => say(''), 7000);
+  };
+  async function copy() {
+    const missing = questions.filter(missingNote);
+    if (missing.length) {
+      const ids = missing.map((q) => q.id);
+      say(`Not copied. ${ids.length === 1 ? `Question ${ids[0]} needs` : `Questions ${ids.join(', ')} need`} a note saying what you want instead.`, true);
+      const first = missing[0];
+      $(first.key).scrollIntoView({ block: 'center' });
+      $(`${first.key}-n`).focus({ preventScroll: true });
+      return;
+    }
+    const text = buildReply();
+    const area = $('reply-text');
+    area.value = text;
+    try {
+      await navigator.clipboard.writeText(text);
+      say('Copied. Paste it in the chat.');
+    } catch {
+      area.focus();
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch {}
+      say(ok ? 'Copied. Paste it in the chat.' : 'This view blocks copying. The reply is selected: copy it with your keyboard.', !ok);
+      area.scrollIntoView({ block: 'center' });
+    }
+  }
+  $('copy-top').addEventListener('click', copy);
+  $('copy-bottom').addEventListener('click', copy);
+
+  // Two clicks, since the viewer can't show a confirm dialog.
+  let armed = null;
+  $('reset').addEventListener('click', () => {
+    const b = $('reset');
+    if (!armed) {
+      b.textContent = 'Click again to reset everything';
+      b.classList.add('armed');
+      armed = setTimeout(() => { armed = null; b.textContent = 'Reset answers and notes'; b.classList.remove('armed'); }, 4000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = null;
+    b.textContent = 'Reset answers and notes';
+    b.classList.remove('armed');
+    for (const q of questions) { state.answers[q.key] = q.suggested; state.notes[q.key] = ''; syncInputs(q); }
+    paintAll(); save();
+    say('Reset. Every answer is back on the suggestion.');
+  });
+})();
+</script>

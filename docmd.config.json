@@ -27,7 +27,8 @@
         { "title": "Demo Video", "path": "/docs/demo-video" },
         { "title": "OKF", "path": "/docs/okf" },
         { "title": "Decompose", "path": "/docs/decompose" },
-        { "title": "Obscura", "path": "/docs/obscura" }
+        { "title": "Obscura", "path": "/docs/obscura" },
+        { "title": "Papiro", "path": "/docs/papiro" }
       ]
     },
     {

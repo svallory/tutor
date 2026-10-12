@@ -1,0 +1,15 @@
+{
+  "name": "papiro",
+  "description": "Decision sheets: several questions with the agent's suggested answers become a page where you change only what you disagree with, add notes, and copy one short reply back into the chat.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Saulo Vallory"
+  },
+  "keywords": [
+    "decisions",
+    "questions",
+    "forms",
+    "triage",
+    "artifacts"
+  ]
+}

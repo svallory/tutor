@@ -27,6 +27,11 @@
       "source": "./plugins/okf"
     },
     {
+      "id": "papiro",
+      "displayName": "Papiro",
+      "source": "./plugins/papiro"
+    },
+    {
       "id": "sync-skills",
       "displayName": "Sync Skills",
       "source": "./plugins/sync-skills"

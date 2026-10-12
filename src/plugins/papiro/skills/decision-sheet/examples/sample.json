@@ -1,0 +1,21 @@
+{
+  "title": "Laptop setup",
+  "intro": "A few choices for the new laptop. Every answer starts on my suggestion.",
+  "options": ["Yes", "No"],
+  "questions": [
+    { "id": 1, "group": "Shell", "title": "Make `zsh` the login shell", "detail": "Every other machine uses it.", "suggested": "Yes" },
+    { "id": 2, "group": "Shell", "title": "Turn on **atuin** history sync", "detail": "Same history on every machine.", "suggested": "Yes" },
+    {
+      "id": 3,
+      "group": "Editor",
+      "title": "Default editor",
+      "options": [
+        { "value": "nano", "label": "nano", "description": "Always there, nothing to learn." },
+        { "value": "nvim", "label": "Neovim", "description": "Needs its config copied over." },
+        { "value": "zed", "label": "Zed", "description": "Desktop only." }
+      ],
+      "suggested": "nano"
+    },
+    { "id": 4, "group": "Editor", "title": "Which fonts to install", "type": "text", "placeholder": "Font names, comma separated" }
+  ]
+}

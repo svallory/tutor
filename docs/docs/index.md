@@ -24,8 +24,9 @@ Then install any plugin by name:
 | [OKF](/docs/okf) | Create, validate, and enrich Open Knowledge Format bundles. | none |
 | [Decompose](/docs/decompose) | Turns vague problems into ordered, testable hypotheses. | none |
 | [Obscura](/docs/obscura) | Scrapes JavaScript-rendered pages and runs Playwright on the Obscura headless browser, with a live view. | obscura; Playwright for E2E runs |
+| [Papiro](/docs/papiro) | Turns many questions with suggested answers into a decision sheet you answer in the browser, then paste back a short reply. | bun or node |
 
-A seventh plugin, **hyper**, ships in the catalog but is sourced from the separate [hyper-coding](https://github.com/svallory/hyper-coding) repository.
+An eighth plugin, **hyper**, ships in the catalog but is sourced from the separate [hyper-coding](https://github.com/svallory/hyper-coding) repository.
 
 ## Which one do I want?
 
@@ -35,6 +36,7 @@ A seventh plugin, **hyper**, ships in the catalog but is sourced from the separa
 - **Docs or knowledge an agent must read reliably** → [OKF](/docs/okf)
 - **A bug or problem with no obvious cause** → [Decompose](/docs/decompose)
 - **A page to scrape or an E2E run without Chromium** → [Obscura](/docs/obscura)
+- **A pile of questions to answer without a long chat** → [Papiro](/docs/papiro)
 
 ## Skills without the plugin
 
@@ -44,7 +46,7 @@ Several plugins are also published as standalone skills through the [skills CLI]
 npx skills add svallory/tutor
 ```
 
-That lists the public skills — `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, and `obscura`. Ghostwriter's helper skills stay internal to its own agent pipeline and are not published this way.
+That lists the public skills — `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura`, and `decision-sheet`. Ghostwriter's helper skills stay internal to its own agent pipeline and are not published this way.
 
 ## Contributing
 
