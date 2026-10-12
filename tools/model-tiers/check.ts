@@ -3,7 +3,7 @@
  * check — compare the curated team-lead model table against live data and PROPOSE diffs.
  * It never writes the table: the operator edits default-models.yaml by hand.
  *
- *   bun --env-file ~/work/.env tools/model-tiers/check.ts [options]
+ *   bun --env-file .env tools/model-tiers/check.ts [options]
  *
  *   --table <file>       curated table (default: src/plugins/team-lead/skills/team-lead/default-models.yaml)
  *   --offline <file>     read Artificial Analysis (AA) data from a local snapshot instead of the API
@@ -302,7 +302,7 @@ export async function loadAA(opts: LoadOptions = {}): Promise<AAData> {
     return { rows: normalizeRows(cached.payload), fetchedAt: cached.fetchedAt, kind: "cache", notes: [] }
   }
   const key = (opts.env ?? process.env).ARTIFICIAL_ANALYSIS_API_KEY
-  if (!key) throw new Error("ARTIFICIAL_ANALYSIS_API_KEY is not set (run with --env-file ~/work/.env, or pass --offline <file>)")
+  if (!key) throw new Error("ARTIFICIAL_ANALYSIS_API_KEY is not set (run with --env-file <path>, or pass --offline <file>)")
   const doFetch = opts.fetchFn ?? fetch
   const notes: string[] = []
   try {

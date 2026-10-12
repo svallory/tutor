@@ -35,11 +35,11 @@ reordering is proposed, and how to score roles that have no reviewer (mechanic, 
 
 ## Protect the lead's inbox log from being truncated by a dev
 
-**Problem.** On 2026-10-08 00:45 a dev on the MX team wrote its status to the
-lead's inbox log (`scratch/reports/inbox-mx-1d.log`) with `>` instead of
+**Problem.** On 2026-10-08 00:45 a dev on one team wrote its status to the
+lead's inbox log (`scratch/reports/inbox-<lead>.log`) with `>` instead of
 `>>`, and 448 lines of history became 33. The team-lead skill's reporting
 convention relies on every agent appending one line to a shared file, and
-nothing enforces append-only. The same can happen to `outbox-mx-1d.log` on a
+nothing enforces append-only. The same can happen to `outbox-<lead>.log` on a
 remote dev host, or to any shared status file a brief names.
 
 **What to do.** Pick one, or layer them:
@@ -58,5 +58,5 @@ remote dev host, or to any shared status file a brief names.
    `.remember/` hourly (or on every read), so a truncation costs at most the
    last hour.
 
-Evidence: mx space, `.remember/now.md` line at 01:05 on 2026-10-08
-("INCIDENT: scratch/reports/inbox-mx-1d.log truncated to 33 lines").
+Evidence: the affected space's `.remember/now.md` logged the incident at 01:05
+on 2026-10-08 (inbox truncated to 33 lines).

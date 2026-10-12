@@ -23,7 +23,7 @@
 # a background shell still running (Claude Code prints "N shell(s) still
 # running" while a backgrounded verify/build runs; Herdr reports that agent as
 # idle/done). `--busy-if CMD` adds a team-wide check: while CMD exits 0 (e.g.
-# `pgrep -f "flock /tmp/mx-heavy.lock"`) the team counts as working.
+# `pgrep -f "flock /tmp/heavy.lock"`) the team counts as working.
 #
 # It never reads anything into a model's context unless there is something to
 # act on; the loop itself costs no tokens. Run it in its own Herdr pane (so the
@@ -37,7 +37,7 @@
 #
 #   --team L=G      Leader agent name or pane ID L; members are every Herdr agent whose
 #                   name matches one of the comma-separated shell globs G
-#                   (e.g. mx-squad-attr='mx-attr-*'). Repeatable.
+#                   (e.g. web-team-lead='web-*'). Repeatable.
 #   --escalate A    Agent to notify when a leader does not react (optional).
 #   --quiet-min N   Minutes with nobody working before alerting (default 15).
 #   --interval S    Seconds between checks (default 60).

@@ -31,7 +31,7 @@
 #
 # Options:
 #   --table PATH      Markdown file containing the status table (required).
-#   --prefix PREFIX   Agent name prefix, e.g. "campaigns-" (required without --orca).
+#   --prefix PREFIX   Agent name prefix, e.g. "web-" (required without --orca).
 #                      Agents are looked up in Herdr as "<prefix><ref>".
 #   --orca            Use the Orca orchestration backend instead of Herdr.
 #   --run ID          Orca Run id the devs were dispatched in (required with --orca).
@@ -77,7 +77,7 @@
 # Example: watch loop that only prints when something needs attention.
 #
 #   while true; do
-#     /path/to/team-status.sh --table notes/team-lead.md --prefix campaigns- \
+#     /path/to/team-status.sh --table notes/team-lead.md --prefix web- \
 #       --budgets scratch/budgets.json --reports scratch/reports --alerts-only
 #     sleep 180
 #   done
