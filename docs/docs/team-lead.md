@@ -39,15 +39,15 @@ A missing `herdr` while `HERDR_ENV=1`, or a missing or non-responding Orca CLI w
 
 ## Launch modes
 
-The lead picks where devs run from its own environment, once per session:
+The lead picks where devs run from its own environment, once per session. Herdr is checked first; the first row that matches wins:
 
 | Environment | Mode | Devs run as |
 |---|---|---|
 | `HERDR_ENV=1` | Herdr | one Herdr tab per dev on this machine |
-| `ORCA_WORKSPACE_ID` set | Orca | one Orca terminal per dev, adopted as an orchestration worker, on any machine Orca reaches |
+| `HERDR_ENV` unset, `ORCA_WORKSPACE_ID` set | Orca | one Orca terminal per dev, adopted as an orchestration worker, on any machine Orca reaches |
 | neither | plain | background agents or shells on this machine |
 
-Only Orca mode places devs on other machines. See [Orca mode](#orca-mode) below.
+A Herdr pane that also carries Orca's variables is Herdr mode: Herdr is the terminal the lead is actually in. Only Orca mode places devs on other machines. See [Orca mode](#orca-mode) below.
 
 ## Usage
 
@@ -223,13 +223,14 @@ A markdown status table lives in your working notes (`notes/team-lead-<date>.md`
 
 ## Orca mode
 
-With `ORCA_WORKSPACE_ID` set the lead uses [Orca](https://www.onorca.dev) instead of Herdr and can spread devs across every machine paired with Orca (the local one plus each remote server). The shape is:
+With `ORCA_WORKSPACE_ID` set and `HERDR_ENV` unset the lead uses [Orca](https://www.onorca.dev) instead of Herdr and can spread devs across every machine paired with Orca (the local one plus each remote server). The shape is:
 
-- **One Run per batch.** The lead's own terminal handle (`ORCA_TERMINAL_HANDLE`) is the coordinator and the `--from` sender for `run-create`, `worker-start` and `send`.
+- **One Run per batch.** The lead creates the Run (`run-create --objective …`) from its own Orca terminal and reads the coordinator handle Orca bound to it back with `run-current`; that handle is the `--from` sender for `worker-start` and `send`. It is not always `ORCA_TERMINAL_HANDLE`: a floating Orca terminal has no stable pane identity.
 - **Live load, no capacity file.** Before each dispatch the lead probes candidate machines (local inline; remote through a throwaway Orca terminal that prints `nproc`, `uptime` and free memory). Slots per machine are `ncpu / 2`, at most 2 heavy jobs, and a machine whose 1-minute load exceeds its CPU count takes no new dev. The least loaded machine with a free slot and the repo registered wins; ties go to local.
 - **Repo registration.** A remote machine is usable only when `orca project setups --environment <id>` lists the project. If it does not, the lead asks you before running `orca project setup-clone` (or `setup-existing-folder`), and leaves the machine out until then.
 - **Adopt, do not re-launch.** The dev's harness is started from `harnesses.yaml` in an Orca terminal (`terminal create --command`), then adopted with `worker-start --terminal <handle>`. The brief is the worker spec, so Orca delivers it; no typing into terminals. `worker-start --agent` is only a fallback for harnesses Orca knows natively.
-- **Completion.** Devs end with `orca orchestration send --type worker_done …`, which the lead receives through `orca orchestration check --wait`; the report file's `STATUS:` line is the second signal.
+- **Account in the launch command.** A remote machine's default harness login may be a different, exhausted subscription, so the launch command carries the account (the harness `env:` block or the machine's profile alias).
+- **Completion.** Devs end with `orca orchestration send --type worker_done … --task-id <id> --dispatch-id <id>` (Orca rejects a `worker_done` without both ids), which the lead receives through `orca orchestration check --wait` and acknowledges with `--ack <deliveryId>`; the report file's `STATUS:` line is the second signal.
 - **Lead, merges, reviews stay local.** Remote machines run devs only.
 
 Remote terminals need `--environment <env-id>` on every `terminal wait|read|close` call and a `--worktree path:` under a registered project setup; the skill records these and other Orca quirks so a lead does not rediscover them.
@@ -244,7 +245,7 @@ All live in the plugin and are invoked through the plugin root variable, never a
 check-deps.sh [--config <harnesses.yaml>]
 ```
 
-Checks the base CLIs, `herdr` when `HERDR_ENV=1`, the Orca CLI (and that `orca status` answers) when `ORCA_WORKSPACE_ID` is set, every configured harness's CLI (`bin:` may explicitly name its executable), and `pi-claude-link` when pi is configured without `messaging: herdr`. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
+Checks the base CLIs, `herdr` when `HERDR_ENV=1`, the Orca CLI (and that `orca status` answers) when `ORCA_WORKSPACE_ID` is set and `HERDR_ENV` is not, every configured harness's CLI (`bin:` may explicitly name its executable), and `pi-claude-link` when pi is configured without `messaging: herdr`. Silent and exit 0 when all is present; otherwise one `MISSING <what> — <how to fix>` line each and exit 1.
 
 ### `rebase-worktrees.sh`
 

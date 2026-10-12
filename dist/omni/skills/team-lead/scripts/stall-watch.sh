@@ -2,7 +2,7 @@
 #
 # stall-watch.sh — token-free stall watchdog for Herdr agent teams.
 #
-# Herdr only. In Orca mode (ORCA_WORKSPACE_ID set) do not run this script: use
+# Herdr only. In Orca mode (HERDR_ENV unset, ORCA_WORKSPACE_ID set) do not run this script: use
 # `orca orchestration check --terminal <coordinator> --run <id> --wait` for mail
 # and the liveness verdicts from `worker-list` (via team-status.sh --orca) for
 # stalls. A token-free Orca watchdog is tracked in the skill's TODO.md.

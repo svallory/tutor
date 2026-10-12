@@ -3,7 +3,8 @@
 # check-deps.sh — verify the CLI tooling the team-lead skill needs, in one call.
 #
 # Checks the base tools every team needs, Herdr when running inside it
-# (HERDR_ENV=1), the Orca CLI when running inside Orca (ORCA_WORKSPACE_ID set),
+# (HERDR_ENV=1), the Orca CLI when running inside Orca and not Herdr (HERDR_ENV
+# unset, ORCA_WORKSPACE_ID set; Herdr wins when both are set),
 # and whatever each harness in the saved harness config needs (its CLI, and for pi
 # the pi-claude-link extension unless the config says `messaging: herdr`). It
 # also validates each harness's `env:` block: variable names must be valid, and
@@ -76,16 +77,15 @@ find_orca() {
   return 1
 }
 
-if [ -n "${ORCA_WORKSPACE_ID:-}" ]; then
+# Launch mode: Herdr first. A Herdr pane that also carries ORCA_WORKSPACE_ID is
+# Herdr mode, so the Orca CLI is only required when HERDR_ENV is unset.
+if [ "${HERDR_ENV:-}" != 1 ] && [ -n "${ORCA_WORKSPACE_ID:-}" ]; then
   if ! find_orca >/dev/null; then
     if [ -n "$orca_found" ]; then
       report "orca status" "ORCA_WORKSPACE_ID is set but '$orca_found status' fails; is the Orca app running? (a stale /usr/local/bin/orca symlink fails this way; set ORCA_CLI_COMMAND to the working binary)"
     else
       report orca "ORCA_WORKSPACE_ID is set but no Orca CLI was found (ORCA_CLI_COMMAND, orca-dev, orca-ide, orca, or the Orca.app bundle)"
     fi
-  fi
-  if [ "${HERDR_ENV:-}" = 1 ]; then
-    report "a single launch mode" "both HERDR_ENV=1 and ORCA_WORKSPACE_ID are set; ask the user which mode to use"
   fi
 fi
 
