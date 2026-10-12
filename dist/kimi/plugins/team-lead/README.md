@@ -8,7 +8,7 @@ The `team-lead` skill turns the agent into an orchestrator that does not write f
 
 - **Collects and clarifies tasks** — dispatches read-only researcher agents to answer what the code can answer before asking you anything
 - **Picks models per task** — haiku for research/mechanical edits, sonnet for normal development, opus for gnarly work, with escalation when a dev gets stuck
-- **Provisions one git worktree per task** via [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`), optionally driving one Herdr tab per dev when `HERDR_ENV=1`
+- **Provisions one git worktree per task** via [worktrunk](https://github.com/max-sixty/worktrunk) (`wt`), driving one Herdr tab per dev when `HERDR_ENV=1`, or one Orca orchestration worker per dev on any Orca-connected machine when `ORCA_WORKSPACE_ID` is set and `HERDR_ENV` is not (devs are placed by live load)
 - **Reviews and integrates** — acceptance review per task, independent `code-review` pass on PRs, progress tracking across the whole batch
 
 ## Requirements
@@ -21,6 +21,7 @@ Checked once per session by `scripts/check-deps.sh`; the skill stops and tells y
 | `wt` (worktrunk) + `worktrunk` skill | one worktree per task |
 | `code-review` skill | independent post-acceptance PR review |
 | `herdr` CLI + skill | only when `HERDR_ENV=1` |
+| Orca CLI (`orca`) | only when `ORCA_WORKSPACE_ID` is set and `HERDR_ENV` is not — devs run as Orca workers on any connected machine |
 | each configured harness's CLI | launching devs on it |
 | [`pi-claude-link`](https://github.com/alonw0/pi-claude-link) | only when pi is a configured harness |
 | `but` (GitButler) | only for projects that use it |
