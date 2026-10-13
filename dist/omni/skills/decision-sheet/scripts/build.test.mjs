@@ -123,6 +123,47 @@ describe('normalize: valid input', () => {
     expect(v(base)).not.toBe(v(sheet([choice({ title: 'Other' })])));
     expect(v(base)).toBe(v({ ...base, intro: 'changed intro' }));
   });
+
+  test('"summary" is the short reason; "detail" is its old name', () => {
+    expect(normalize(sheet([choice({ summary: 'why' })])).form.groups[0].questions[0].summary).toBe('why');
+    expect(normalize(sheet([choice({ detail: 'why' })])).form.groups[0].questions[0].summary).toBe('why');
+    expect(normalize(sheet([choice()])).form.groups[0].questions[0].summary).toBe('');
+    expect(errorsOf(sheet([choice({ summary: 'a', detail: 'b' })]))).toEqual([
+      'questions[0].detail: use "summary" (the short reason) or its old name "detail", not both',
+    ]);
+  });
+
+  test('details and context are optional text on questions, groups and the sheet', () => {
+    const { form, errors } = normalize({
+      title: 'Sheet',
+      context: 'Terms used below.',
+      groups: [{ title: 'G', context: 'Group terms.', questions: [choice({ details: 'The long version.' })] }],
+    });
+    expect(errors).toEqual([]);
+    expect(form.context).toBe('Terms used below.');
+    expect(form.groups[0].context).toBe('Group terms.');
+    expect(form.groups[0].questions[0].details).toBe('The long version.');
+    const bare = normalize(sheet([choice()])).form;
+    expect([bare.context, bare.groups[0].context, bare.groups[0].questions[0].details]).toEqual(['', '', '']);
+  });
+
+  test('resources: strings become paths or links, objects keep label and note', () => {
+    const { form, errors } = normalize({
+      title: 'Sheet',
+      resources: ['docs/a.md', 'https://x.test/p', { url: 'https://y.test', label: 'Y', note: 'the spec' }, { path: 'src/b.ts', note: 'parser' }],
+      groups: [{ resources: ['README.md'], questions: [choice({ resources: ['HTTP://CAPS.test'] })] }],
+    });
+    expect(errors).toEqual([]);
+    expect(form.resources).toEqual([
+      { kind: 'path', target: 'docs/a.md', label: '', note: '' },
+      { kind: 'url', target: 'https://x.test/p', label: '', note: '' },
+      { kind: 'url', target: 'https://y.test', label: 'Y', note: 'the spec' },
+      { kind: 'path', target: 'src/b.ts', label: '', note: 'parser' },
+    ]);
+    expect(form.groups[0].resources).toEqual([{ kind: 'path', target: 'README.md', label: '', note: '' }]);
+    expect(form.groups[0].questions[0].resources[0].kind).toBe('url');
+    expect(normalize(sheet([choice()])).form.resources).toEqual([]);
+  });
 });
 
 describe('normalize: problems', () => {
@@ -216,14 +257,24 @@ describe('normalize: problems', () => {
       title: 'S',
       intro: 3,
       id: '',
-      groups: [{ title: 1, description: false, questions: [choice({ detail: 2, suggested: 1 }), 'nope'] }],
+      context: [],
+      resources: 'docs/a.md',
+      groups: [{ title: 1, description: false, context: 2, resources: [3, { label: 'x' }, { path: 'a', url: 'b' }, { path: 'a', note: 4 }], questions: [choice({ detail: 2, details: 3, suggested: 1 }), 'nope'] }],
     });
     expect(errors).toEqual([
       'id: must be a non-empty string',
       'intro: must be a string',
+      'context: must be a string',
+      'resources: must be an array of paths, links or {path | url, label, note} objects',
       'groups[0].title: must be a string',
       'groups[0].description: must be a string',
+      'groups[0].context: must be a string',
+      'groups[0].resources[0]: must be a string or a {path | url, label, note} object',
+      'groups[0].resources[1]: needs exactly one of "path" (relative to the repo root) or "url"',
+      'groups[0].resources[2]: needs exactly one of "path" (relative to the repo root) or "url"',
+      'groups[0].resources[3].note: must be a string',
       'groups[0].questions[0].detail: must be a string',
+      'groups[0].questions[0].details: must be a string',
       'groups[0].questions[0].suggested: must be a string, the value of one option',
       'groups[0].questions[1]: must be an object',
     ]);
@@ -313,7 +364,7 @@ describe('render', () => {
     const data = sheet([choice({ title: 'push-🙈', detail: 'a\u2028b\u2029c' })]);
     const html = build(data);
     expect(html).not.toMatch(/[\u2028\u2029]/);
-    expect(embedded(html).groups[0].questions[0]).toMatchObject({ title: 'push-🙈', detail: 'a\u2028b\u2029c' });
+    expect(embedded(html).groups[0].questions[0]).toMatchObject({ title: 'push-🙈', summary: 'a\u2028b\u2029c' });
   });
 
   test('a template without its placeholders is refused', () => {

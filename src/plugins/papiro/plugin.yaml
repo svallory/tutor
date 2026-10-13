@@ -1,5 +1,5 @@
 name: papiro
-version: 0.1.0
+version: 0.2.0
 description: >-
   Decision sheets: several questions with the agent's suggested answers become a page where you change only what you disagree with, add notes, and copy one short reply back into the chat.
 author: Saulo Vallory

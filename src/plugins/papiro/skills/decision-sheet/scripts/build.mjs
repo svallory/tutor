@@ -81,6 +81,47 @@ function normalizeOptions(list, path, err, warn) {
 }
 
 /**
+ * Related resources: file paths relative to the repo root, or web links. A
+ * string is a link when it starts with http:// or https://, a path otherwise.
+ * Objects carry an optional label and note.
+ */
+function normalizeResources(list, path, err) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) {
+    err(path, 'must be an array of paths, links or {path | url, label, note} objects');
+    return [];
+  }
+  const out = [];
+  list.forEach((r, i) => {
+    const p = `${path}[${i}]`;
+    let item;
+    if (isText(r)) {
+      const target = r.trim();
+      item = { kind: /^https?:\/\//i.test(target) ? 'url' : 'path', target, label: '', note: '' };
+    } else if (isObject(r)) {
+      if (isText(r.path) === isText(r.url)) return err(p, 'needs exactly one of "path" (relative to the repo root) or "url"');
+      if (r.label !== undefined && typeof r.label !== 'string') return err(`${p}.label`, 'must be a string');
+      if (r.note !== undefined && typeof r.note !== 'string') return err(`${p}.note`, 'must be a string');
+      item = isText(r.path)
+        ? { kind: 'path', target: r.path.trim(), label: r.label ?? '', note: r.note ?? '' }
+        : { kind: 'url', target: r.url.trim(), label: r.label ?? '', note: r.note ?? '' };
+    } else return err(p, 'must be a string or a {path | url, label, note} object');
+    out.push(item);
+  });
+  return out;
+}
+
+/** An optional block of text: undefined becomes '', anything but a string is an error. */
+function optionalText(value, path, err) {
+  if (value === undefined) return '';
+  if (typeof value !== 'string') {
+    err(path, 'must be a string');
+    return '';
+  }
+  return value;
+}
+
+/**
  * Checks the input and turns it into what the page reads. Returns every
  * problem found, each prefixed with the path to it, instead of stopping at the
  * first one. Warnings point at things that build fine but read badly.
@@ -96,6 +137,8 @@ export function normalize(data) {
   if (!isText(data.title)) err('title', 'required, a non-empty string');
   if (data.id !== undefined && !isText(data.id)) err('id', 'must be a non-empty string');
   if (data.intro !== undefined && typeof data.intro !== 'string') err('intro', 'must be a string');
+  const context = optionalText(data.context, 'context', err);
+  const resources = normalizeResources(data.resources, 'resources', err);
   const defaultOptions = data.options === undefined ? undefined : normalizeOptions(data.options, 'options', err, warn);
   if (data.other !== undefined && typeof data.other !== 'boolean') err('other', 'must be true or false');
   const defaultOther = typeof data.other === 'boolean' ? data.other : true;
@@ -115,6 +158,8 @@ export function normalize(data) {
       raw.push({
         title: typeof g.title === 'string' ? g.title : '',
         description: typeof g.description === 'string' ? g.description : '',
+        context: optionalText(g.context, `${p}.context`, err),
+        resources: normalizeResources(g.resources, `${p}.resources`, err),
         items: (Array.isArray(g.questions) ? g.questions : []).map((q, j) => [q, `${p}.questions[${j}]`]),
       });
     });
@@ -126,7 +171,7 @@ export function normalize(data) {
       data.questions.forEach((q, i) => {
         const name = isObject(q) && typeof q.group === 'string' ? q.group : '';
         if (!byName.has(name)) {
-          const group = { title: name, description: '', items: [] };
+          const group = { title: name, description: '', context: '', resources: [], items: [] };
           byName.set(name, group);
           raw.push(group);
         }
@@ -148,7 +193,12 @@ export function normalize(data) {
     } else if (seen.has(id)) err(`${p}.id`, `"${id}" is already used by ${seen.get(id)}`);
     else seen.set(id, p);
     if (!isText(q.title)) err(`${p}.title`, 'required, a non-empty string');
-    if (q.detail !== undefined && typeof q.detail !== 'string') err(`${p}.detail`, 'must be a string');
+    // "summary" is the short reason shown with the question; "detail" is its
+    // old name and still accepted. "details" is the long, collapsed version.
+    if (q.summary !== undefined && q.detail !== undefined) err(`${p}.detail`, 'use "summary" (the short reason) or its old name "detail", not both');
+    const summary = q.summary !== undefined
+      ? optionalText(q.summary, `${p}.summary`, err)
+      : optionalText(q.detail, `${p}.detail`, err);
     if (q.group !== undefined && typeof q.group !== 'string') err(`${p}.group`, 'must be a string');
 
     const type = q.type ?? 'choice';
@@ -156,7 +206,9 @@ export function normalize(data) {
       key: `q${++count}`,
       id,
       title: typeof q.title === 'string' ? q.title : '',
-      detail: typeof q.detail === 'string' ? q.detail : '',
+      summary,
+      details: optionalText(q.details, `${p}.details`, err),
+      resources: normalizeResources(q.resources, `${p}.resources`, err),
       type,
       options: [],
       suggested: '',
@@ -192,6 +244,8 @@ export function normalize(data) {
   const groups = raw.map((g) => ({
     title: g.title,
     description: g.description,
+    context: g.context,
+    resources: g.resources,
     questions: g.items.map(([q, p]) => question(q, p)).filter(Boolean),
   }));
 
@@ -202,6 +256,8 @@ export function normalize(data) {
       title,
       id: data.id ? slug(data.id) : slug(title),
       intro: data.intro ?? '',
+      context,
+      resources,
       version: hash(JSON.stringify(groups)),
       groups,
     },

@@ -11,7 +11,7 @@ Use it instead of a long list in the chat or several rounds of AskUserQuestion. 
 
 ## Steps
 
-1. Write the questions to a JSON file in the scratchpad (format below). Give every question your suggestion, and a short reason in `detail`. Leave `suggested` out only when you have no sensible default: the page marks those "needs you".
+1. Write the questions to a JSON file in the scratchpad (format below). Give every question your suggestion, and a short reason in `summary`. Leave `suggested` out only when you have no sensible default: the page marks those "needs you". Write for a reader who was not in the conversation (see [Writing the questions](#writing-the-questions)).
 2. Build the page. It runs with `bun` or `node` and has no dependencies:
    ```bash
    bun $KIMI_PLUGIN_ROOT/skills/decision-sheet/scripts/build.mjs questions.json   # writes questions.html
@@ -24,6 +24,15 @@ Use it instead of a long list in the chat or several rounds of AskUserQuestion. 
 To change the questions later, edit the JSON and build to the same HTML path.
 Drafts are saved in the user's browser and keyed by question id, so answers to questions that are still there carry over to the new version.
 
+## Writing the questions
+
+The user reads the sheet cold, often hours later, without the chat. Every term that was coined or that only makes sense inside the conversation is a question they cannot answer. So:
+
+- **Plain words.** Say what happens, not the name you gave it. "The `?` after a value turns the value into a trigger" beats "the value is armed". If a term is unavoidable, define it once in a `context` block: the sheet's own for terms used throughout, a group's for terms used in that group.
+- **`summary` is the reason in one or two sentences.** It is always visible. Put the full reasoning, the alternatives you ruled out, examples and code in `details`; the page shows it collapsed as "In-depth look".
+- **`resources` are only what you already have in hand**: files you read or changed (paths relative to the repo root) and links you were given or used. Never run a search to fill it. Leave it out when there is nothing.
+- An option's `description` says what picking it means: what changes, what it costs, what it rules out.
+
 ## JSON format
 
 ```json
@@ -31,13 +40,23 @@ Drafts are saved in the user's browser and keyed by question id, so answers to q
   "title": "zsh triage",
   "id": "zsh-triage",
   "intro": "35 leftovers from the Mac's zsh config. The numbers match the chat.",
+  "context": "A **leftover** is a line in `.zshrc` that no file in the dotfiles repo produces.",
+  "resources": ["dotfiles/zsh/.zshrc"],
   "options": ["Keep", "Drop"],
   "groups": [
     {
       "title": "Keep",
       "description": "I'd keep these.",
+      "context": "These all came from the Mac; the dotfiles repo never had them.",
       "questions": [
-        { "id": 1, "title": "`man` opens pages through batman", "detail": "Colored man pages.", "suggested": "Keep" },
+        {
+          "id": 1,
+          "title": "`man` opens pages through batman",
+          "summary": "Colored man pages.",
+          "details": "`batman` wraps `man` so pages render through `bat`.\n\n- Needs `bat` installed, which every machine has.\n- Without it `man` still works, in plain text.",
+          "resources": ["dotfiles/zsh/aliases.zsh", { "url": "https://github.com/eth-p/bat-extras", "label": "bat-extras", "note": "where batman comes from" }],
+          "suggested": "Keep"
+        },
         {
           "id": 9,
           "title": "`open-pr` base branch",
@@ -66,9 +85,11 @@ Top level:
 | `title` | yes | Page name, also the first word of the reply. |
 | `id` | no | Names the saved draft. Defaults to the title as a slug. |
 | `intro` | no | Shown above the questions. Blank lines split paragraphs. |
+| `context` | no | Terms and facts the whole sheet relies on. Collapsed under the intro as "Context". |
+| `resources` | no | Files and links for the whole sheet. Collapsed as "Related resources". See [Resources](#resources). |
 | `options` | no | Default options for choice questions that list none. |
 | `other` | no | `false` turns off the **Something else** option on every choice question. On by default. |
-| `groups` | one of | `[{title, description, questions}]`, in display order. |
+| `groups` | one of | `[{title, description, context, resources, questions}]`, in display order. A group's `context` and `resources` are collapsed under its heading. |
 | `questions` | one of | A flat list. A question's `group` field groups them, in order of first appearance. |
 
 Question:
@@ -77,7 +98,9 @@ Question:
 |---|---|---|
 | `id` | yes | String or number, unique. The reply refers to questions by it. |
 | `title` | yes | The decision, in a few words. |
-| `detail` | no | Why you suggest what you do. One or two sentences. |
+| `summary` | no | Why you suggest what you do. One or two sentences, always visible. `detail` is its old name. |
+| `details` | no | The long version: reasoning, alternatives, examples. Collapsed as "In-depth look". |
+| `resources` | no | Files and links for this question. Collapsed as "Related resources". |
 | `type` | no | `"choice"` (default) or `"text"` for a free answer. |
 | `options` | choice | At least 2. A string, or `{value, label, description}`. See [Options](#options). |
 | `suggested` | no | For choice, the `value` of one option. For text, prefilled text. |
@@ -86,7 +109,11 @@ Question:
 
 Every choice question gets a last option, **Something else**, unless `other` is `false`. Picking it makes the note required: the row is flagged and **Copy reply** refuses until the note is written. Don't add an option of your own for it; the value `__other__` is reserved.
 
-`title`, `detail`, `intro`, labels and descriptions accept `` `code` `` and `**bold**`. Everything else is shown as plain text.
+`title`, `summary`, `intro`, labels and descriptions accept `` `code` `` and `**bold**`. `context`, `details` and `intro` also take blank lines between paragraphs, `- ` list lines and ``` fenced code blocks. Everything else is shown as plain text.
+
+### Resources
+
+A list of strings or objects. A string starting with `http://` or `https://` is a link; any other string is a file path relative to the repo root. An object is `{path, label, note}` or `{url, label, note}`: `label` replaces the shown path or address, `note` says in a few words why the resource matters. Only list what you already have; the skill never asks you to research.
 
 ### Options
 

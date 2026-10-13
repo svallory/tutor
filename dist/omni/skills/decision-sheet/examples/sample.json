@@ -1,10 +1,12 @@
 {
   "title": "Laptop setup",
   "intro": "A few choices for the new laptop. Every answer starts on my suggestion.",
+  "context": "**Login shell** is the shell the terminal opens with. **History sync** copies every command you ran to the other machines.",
+  "resources": ["dotfiles/README.md"],
   "options": ["Yes", "No"],
   "questions": [
-    { "id": 1, "group": "Shell", "title": "Make `zsh` the login shell", "detail": "Every other machine uses it.", "suggested": "Yes" },
-    { "id": 2, "group": "Shell", "title": "Turn on **atuin** history sync", "detail": "Same history on every machine.", "suggested": "Yes" },
+    { "id": 1, "group": "Shell", "title": "Make `zsh` the login shell", "summary": "Every other machine uses it.", "details": "The dotfiles only cover zsh.\n\n- bash would need its own prompt and completion setup.\n- fish is not POSIX, so the shared scripts break.", "resources": ["dotfiles/zsh/.zshrc"], "suggested": "Yes" },
+    { "id": 2, "group": "Shell", "title": "Turn on **atuin** history sync", "summary": "Same history on every machine.", "resources": [{ "url": "https://atuin.sh", "label": "atuin", "note": "the sync service" }], "suggested": "Yes" },
     {
       "id": 3,
       "group": "Editor",

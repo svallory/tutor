@@ -100,7 +100,33 @@ h1 { font: 800 clamp(1.2rem, 2.6vw, 1.45rem)/1.15 var(--font-ui); letter-spacing
 .pill.flipped { background: var(--change-soft); color: var(--change); }
 .pill.answered { background: var(--accent-soft); color: var(--accent); }
 .pill.open, .pill.missing { background: var(--block-soft); color: var(--block); }
-.q-detail { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; max-width: 68ch; }
+.q-summary { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; max-width: 68ch; }
+
+/* Folds: context, the in-depth look and related resources. Closed by default;
+   the summary line reads like a quiet link, the body like a side note. */
+.fold { margin: 0.45rem 0 0; max-width: 68ch; font-size: 0.9rem; }
+.fold > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); font: 600 0.8rem/1.4 var(--font-ui); padding: 0.1rem 0; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: ""; width: 0.4rem; height: 0.4rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 120ms ease; margin-inline: 0.1rem 0.15rem; }
+.fold[open] > summary::before { transform: rotate(45deg); }
+.fold > summary:hover { color: var(--accent); }
+.fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.fold-body { margin: 0.4rem 0 0.3rem; padding: 0.65rem 0.9rem; border-left: 2px solid var(--rule); color: var(--ink); }
+.fold-body > :first-child { margin-top: 0; }
+.fold-body > :last-child { margin-bottom: 0; }
+.fold-body p { margin: 0 0 0.55rem; }
+.fold-body ul { margin: 0 0 0.55rem; padding-left: 1.2rem; }
+.fold-body li { margin: 0.15rem 0; }
+.fold-body pre { margin: 0 0 0.55rem; padding: 0.55rem 0.7rem; background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 6px; overflow-x: auto; font: 500 0.82em/1.5 var(--font-mono); }
+.fold-body pre code { background: none; padding: 0; font: inherit; }
+.fold-body a { color: var(--accent); overflow-wrap: anywhere; }
+.resources { list-style: none; padding: 0; }
+.resources li { margin: 0.25rem 0; }
+.resources .res-note { color: var(--muted); }
+.page-folds, .group-folds { max-width: 68ch; }
+.group-folds { flex-basis: 100%; }
+.page-folds { margin-bottom: 0.9rem; }
+.page-folds .fold, .group-folds .fold { margin-top: 0.3rem; }
 
 .q-pick { grid-area: pick; display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; margin-top: 0.75rem; }
 .q-note { grid-area: note; margin-top: 0.7rem; }
@@ -193,6 +219,7 @@ textarea[aria-invalid="true"] { border-color: var(--block); box-shadow: 0 0 0 3p
 
 <main class="wrap">
   <div class="intro" id="intro"></div>
+  <div class="page-folds" id="page-folds"></div>
   <p class="howto">Every question starts on my suggestion, marked <span class="dot" aria-hidden="true"></span><span class="sr">with a dot</span>. Change only what you disagree with. <strong>Something else</strong> needs a note saying what you want instead. Then press <strong>Copy reply</strong> and paste it in the chat.</p>
   <div id="groups"></div>
 
@@ -230,6 +257,45 @@ textarea[aria-invalid="true"] { border-color: var(--block); box-shadow: 0 0 0 3p
   const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   const plain = (s) => String(s).replace(/`([^`]+)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\s+/g, ' ').trim();
   const oneLine = (s) => String(s).trim().replace(/\s*\n\s*/g, ' / ');
+  // A block of text: paragraphs split by blank lines, "- " lines make a list,
+  // and ``` fences make a code block. Inline code and bold work everywhere
+  // but inside a fence.
+  function blocks(text) {
+    const out = [];
+    const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+    let para = [];
+    let list = null;
+    const flush = () => {
+      if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; }
+      if (list) { out.push(`<ul>${list.map((l) => `<li>${inline(l)}</li>`).join('')}</ul>`); list = null; }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        flush();
+        const code = [];
+        for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]);
+        out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      } else if (/^\s*[-*]\s+/.test(line)) {
+        if (para.length) flush();
+        (list ??= []).push(line.replace(/^\s*[-*]\s+/, ''));
+      } else if (!line.trim()) flush();
+      else { if (list) flush(); para.push(line.trim()); }
+    }
+    flush();
+    return out.join('');
+  }
+  const fold = (label, body, cls = '') => body
+    ? `<details class="fold${cls ? ` ${cls}` : ''}"><summary>${label}</summary><div class="fold-body">${body}</div></details>`
+    : '';
+  const resourceList = (list) => !list.length ? '' : `<ul class="resources">${list.map((r) => {
+    const label = r.label ? inline(r.label) : r.kind === 'url' ? esc(r.target) : `<code>${esc(r.target)}</code>`;
+    const main = r.kind === 'url' ? `<a href="${esc(r.target)}" target="_blank" rel="noopener">${label}</a>` : label;
+    return `<li>${main}${r.note ? ` <span class="res-note">${inline(r.note)}</span>` : ''}</li>`;
+  }).join('')}</ul>`;
+  const folds = (o, detailsLabel) => fold('Context', o.context ? blocks(o.context) : '')
+    + (detailsLabel ? fold(detailsLabel, o.details ? blocks(o.details) : '') : '')
+    + fold('Related resources', resourceList(o.resources || []));
   const short = (s, n = 64) => {
     if (s.length <= n) return s;
     const cut = s.slice(0, n);
@@ -331,17 +397,18 @@ textarea[aria-invalid="true"] { border-color: var(--block); box-shadow: 0 0 0 3p
   // Render
   $('title').textContent = form.title;
   $('eyebrow').textContent = `Decision sheet · ${plural(questions.length, 'question', 'questions')}`;
-  $('intro').innerHTML = form.intro
-    ? form.intro.split(/\n\s*\n/).map((p) => `<p>${inline(p.trim())}</p>`).join('')
-    : '';
+  $('intro').innerHTML = form.intro ? blocks(form.intro) : '';
+  $('page-folds').innerHTML = folds(form);
   const groupsEl = $('groups');
   for (const g of form.groups) {
     const section = document.createElement('section');
     section.className = 'group';
-    if (g.title || g.description) {
+    const groupFolds = folds(g);
+    if (g.title || g.description || groupFolds) {
       section.innerHTML = `<div class="group-head">${g.title ? `<h2>${inline(g.title)}</h2>` : ''}`
         + `<span class="group-count">${plural(g.questions.length, 'question', 'questions')}</span>`
         + (g.description ? `<p class="group-desc">${inline(g.description)}</p>` : '')
+        + (groupFolds ? `<div class="group-folds">${groupFolds}</div>` : '')
         + '</div>';
     }
     const rows = document.createElement('div');
@@ -368,7 +435,8 @@ textarea[aria-invalid="true"] { border-color: var(--block); box-shadow: 0 0 0 3p
       art.innerHTML = `<div class="q-id" aria-hidden="true">${esc(q.id)}</div>
         <div class="q-body">
           <div class="q-head"><h3 class="q-title" id="${q.key}-t"><span class="sr">${esc(q.id)}. </span>${inline(q.title)}</h3><span class="pill" hidden></span></div>
-          ${q.detail ? `<p class="q-detail">${inline(q.detail)}</p>` : ''}
+          ${q.summary ? `<p class="q-summary">${inline(q.summary)}</p>` : ''}
+          ${folds(q, 'In-depth look')}
         </div>
         <div class="q-pick">
           ${q.type === 'text' ? '' : control}

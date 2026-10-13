@@ -12,7 +12,7 @@ The `decision-sheet` skill takes the agent's questions, each with its suggested 
 
 The reply lists only what changed, your notes and the questions still open, so it stays short however many questions there were. The agent then applies it and updates the plan or report the questions came from.
 
-Questions can have their own options, a free-text answer, or no suggestion at all (shown as "needs you"). When options have descriptions, the page shows the options as a list of short names with a box beside it that explains the picked one; hovering another option previews its explanation.
+Questions can have their own options, a free-text answer, or no suggestion at all (shown as "needs you"). Each question shows a one-line reason and can fold out an in-depth look and related files and links; the sheet and each group can fold out a context block that defines the terms they use. When options have descriptions, the page shows the options as a list of short names with a box beside it that explains the picked one; hovering another option previews its explanation.
 
 Answers are saved as a draft in your browser. When the agent rebuilds the sheet with changed questions, answers to the questions that are still there carry over.
 
