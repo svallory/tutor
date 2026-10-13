@@ -1,5 +1,6 @@
 ---
-name: decision-sheet
+name: papiro
+argument-hint: "[what the questions are about]"
 description: Use when the user has several decisions to make at once (about 4 or more questions, each with your suggested answer), such as triage lists, keep-or-drop reviews, migration choices or config options, or when they ask for questions "as a list with defaults" or as a form. Builds a private artifact page where they flip only the answers they disagree with, add optional notes, and copy a short reply back into the chat.
 ---
 

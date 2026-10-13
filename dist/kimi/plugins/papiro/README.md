@@ -4,7 +4,7 @@ Decision sheets: when your agent has several questions for you, it turns them in
 
 ## What it does
 
-The `decision-sheet` skill takes the agent's questions, each with its suggested answer and a short reason, and builds a single HTML page. On the page you:
+The `papiro` skill takes the agent's questions, each with its suggested answer and a short reason, and builds a single HTML page. On the page you:
 
 1. change only the answers you disagree with;
 2. add a note where you want to say more, or pick **Something else** and write what you want instead;
@@ -22,7 +22,7 @@ In Claude Code the page is published as a private artifact. On other agents it i
 
 Run `/papiro` to turn the open questions in the conversation into a sheet, or ask for "these questions as a list with defaults" or "as a form". The agent also reaches for it on its own when it has about four or more decisions for you.
 
-`/papiro:decision-sheet` runs the skill directly.
+`/papiro:papiro` runs the skill directly.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ Run `/papiro` to turn the open questions in the conversation into a sheet, or as
 Or as a standalone skill via the [skills CLI](https://skills.sh):
 
 ```
-npx skills add svallory/tutor --skill decision-sheet
+npx skills add svallory/tutor --skill papiro
 ```
 
 ## Files
@@ -45,8 +45,8 @@ npx skills add svallory/tutor --skill decision-sheet
 | Path | What it is |
 |---|---|
 | `commands/papiro.md` | the `/papiro` command |
-| `skills/decision-sheet/SKILL.md.jig` | the skill, rendered per platform |
-| `skills/decision-sheet/scripts/build.mjs` | checks the questions JSON and writes the page |
-| `skills/decision-sheet/scripts/build.test.mjs` | tests; run `bun test` in the skill folder |
-| `skills/decision-sheet/assets/template.html` | the page |
-| `skills/decision-sheet/examples/sample.json` | a small sheet to try the build with |
+| `skills/papiro/SKILL.md.jig` | the skill, rendered per platform |
+| `skills/papiro/scripts/build.mjs` | checks the questions JSON and writes the page |
+| `skills/papiro/scripts/build.test.mjs` | tests; run `bun test` in the skill folder |
+| `skills/papiro/assets/template.html` | the page |
+| `skills/papiro/examples/sample.json` | a small sheet to try the build with |

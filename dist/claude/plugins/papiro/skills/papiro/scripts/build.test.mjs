@@ -382,7 +382,7 @@ describe('slug', () => {
 });
 
 describe('main', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'decision-sheet-'));
+  const dir = mkdtempSync(join(tmpdir(), 'papiro-'));
   const write = (name, text) => {
     const path = join(dir, name);
     writeFileSync(path, text);

@@ -112,7 +112,7 @@ The standalone skills are also installable with the [skills CLI](https://skills.
 npx skills add svallory/tutor
 ```
 
-This lists `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura` and `decision-sheet`. Ghostwriter's internal helper skills (`detector-red-flags`, `surgical-update`, `writer-examples`) are marked internal and hidden by default — they only make sense inside the ghostwriter plugin's agent pipeline.
+This lists `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura` and `papiro`. Ghostwriter's internal helper skills (`detector-red-flags`, `surgical-update`, `writer-examples`) are marked internal and hidden by default — they only make sense inside the ghostwriter plugin's agent pipeline.
 
 The repo's [skills.sh](https://skills.sh/svallory/tutor) page layout is configured in [skills.sh.json](skills.sh.json).
 

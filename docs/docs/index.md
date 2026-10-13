@@ -46,7 +46,7 @@ Several plugins are also published as standalone skills through the [skills CLI]
 npx skills add svallory/tutor
 ```
 
-That lists the public skills — `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura`, and `decision-sheet`. Ghostwriter's helper skills stay internal to its own agent pipeline and are not published this way.
+That lists the public skills — `okf-open-knowledge-format`, `team-lead`, `demo-video`, `decompose`, `sync-skills`, `obscura`, and `papiro`. Ghostwriter's helper skills stay internal to its own agent pipeline and are not published this way.
 
 ## Contributing
 

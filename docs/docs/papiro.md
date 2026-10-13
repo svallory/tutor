@@ -14,7 +14,7 @@ It replaces the long numbered list in the chat that you have to answer line by l
 Or as a standalone skill via the [skills CLI](https://skills.sh):
 
 ```
-npx skills add svallory/tutor --skill decision-sheet
+npx skills add svallory/tutor --skill papiro
 ```
 
 ## Requirements
@@ -28,7 +28,7 @@ In Claude Code the sheet is published as a private artifact, so it opens on clau
 
 ## When it triggers
 
-- You run `/papiro`, or `/papiro:decision-sheet`. Anything after the command tells the agent what the questions are about.
+- You run `/papiro`, or `/papiro:papiro`. Anything after the command tells the agent what the questions are about.
 - You ask for the questions "as a list with defaults" or "as a form".
 - The agent has about four or more decisions for you at once: a triage list, keep-or-drop reviews, migration choices, config options. For one to three quick questions it still asks in the chat.
 

@@ -1,5 +1,6 @@
 ---
-name: decision-sheet
+name: papiro
+argument-hint: "[what the questions are about]"
 description: Use when the user has several decisions to make at once (about 4 or more questions, each with your suggested answer), such as triage lists, keep-or-drop reviews, migration choices or config options, or when they ask for questions "as a list with defaults" or as a form. Builds a private artifact page where they flip only the answers they disagree with, add optional notes, and copy a short reply back into the chat.
 ---
 
@@ -14,14 +15,14 @@ Use it instead of a long list in the chat or several rounds of AskUserQuestion. 
 1. Write the questions to a JSON file in the scratchpad (format below). Give every question your suggestion, and a short reason in `summary`. Leave `suggested` out only when you have no sensible default: the page marks those "needs you". Write for a reader who was not in the conversation (see [Writing the questions](#writing-the-questions)).
 2. Build the page. It runs with `bun` or `node` and has no dependencies:
    ```bash
-   bun ${CLAUDE_SKILL_DIR}/scripts/build.mjs questions.json   # writes questions.html
+   bun $KIMI_PLUGIN_ROOT/skills/papiro/scripts/build.mjs questions.json   # writes questions.html
    ```
    It checks the file and lists every problem with its path, such as `groups[1].questions[3].suggested: "maybe" is not an option ("Keep", "Drop")`. Fix them and run it again. It also warns about labels that are too long (see [Options](#options)); fix those too, since a long label reads badly in the selector.
-3. Publish the HTML file with the Artifact tool: `icon: "checklist"` and a one-sentence `description`. The page is already designed, so publish it as built. If the Artifact tool isn't available, give the user the file's path to open in a browser instead.
-4. Send the link and stop. Tell the user to paste the copied reply into the chat.
+3. Give the user the HTML file's path to open in a browser. The page has no server and works offline.
+4. Stop there. Tell the user to paste the copied reply into the chat.
 5. Apply the reply (format below). Then update the record of the decisions, for example the report or plan the questions came from.
 
-To change the questions later, edit the JSON, build to the same HTML path and publish that path again. The URL stays the same.
+To change the questions later, edit the JSON and build to the same HTML path.
 Drafts are saved in the user's browser and keyed by question id, so answers to questions that are still there carry over to the new version.
 
 ## Writing the questions
