@@ -102,8 +102,9 @@ const componentsOf = (pluginDir: string) =>
   }))
 
 // Never shipped: the canonical metadata (compiled into manifests instead),
-// dependency/VCS dirs, and local Python/OS junk that .gitignore already hides.
-const SKIP_NAMES = new Set(['plugin.yaml', 'node_modules', '.git', '.venv', '__pycache__', '.DS_Store'])
+// maintainer notes (TODO.md), dependency/VCS dirs, and local Python/OS junk
+// that .gitignore already hides.
+const SKIP_NAMES = new Set(['plugin.yaml', 'TODO.md', 'node_modules', '.git', '.venv', '__pycache__', '.DS_Store'])
 const SKIP_EXTS = ['.pyc']
 
 function* walk(dir: string): Generator<string> {
