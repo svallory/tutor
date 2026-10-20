@@ -2,29 +2,29 @@ Read this when `HERDR_ENV=1` (Herdr mode): before launching or briefing your fir
 
 ## Herdr mode
 
-Applies only when `test "${HERDR_ENV:-}" = 1` passes. Inside Herdr every dev (Haiku included) gets its own tab so the user can watch and take over; Researchers and reviewers that only return text still use the Agent tool.
+Applies only when `test "${HERDR_ENV:-}" = 1` passes. Inside Herdr every dev (Haiku included) gets its own worktree workspace so the user can watch and take over; Researchers and reviewers that only return text still use the Agent tool.
 
-Variables: `WORKSPACE` is your pane's current workspace. Look it up right before each `tab create` with `herdr pane current --current | jq -r .result.pane.workspace_id`. Never use `$HERDR_WORKSPACE_ID` for this: Herdr sets it when the pane starts and never updates it, so after your pane is moved to another workspace it still names the old one (verified with herdr 0.9.1). `SPACE_ROOT` is the hyper space root (repo root outside a space). `PROJECT` is the space/repo directory name. **REQUIRED SUB-SKILL:** use the `herdr` skill for command syntax; run `herdr tab`, `herdr pane`, `herdr agent` to confirm current flags before first use.
+Variables: `WORKTREE` and `BRANCH` come from workflow step 4, which has already created the worktree. `SPACE_ROOT` is the hyper space root (repo root outside a space). `PROJECT` is the space/repo directory name. **REQUIRED SUB-SKILL:** use the `herdr` skill for command syntax; run `herdr worktree`, `herdr pane`, `herdr agent` to confirm current flags before first use.
 
-Each dev gets **one tab** whose root pane runs the dev session, with cwd = the hyper space root (or the repo root outside a space).
+Every agent you start in Herdr (dev, Squad Leader, peer lead) gets its pane from `herdr worktree open`; never `herdr tab create` or `herdr workspace create`. Each dev gets **one worktree workspace**: `herdr worktree open` opens the worktree as a workspace linked to the repo's workspace in the sidebar, and its root pane, with cwd = the worktree, runs the dev session. Do not use `herdr worktree create`; `wt` makes the worktree in step 4 so the branch, base and path follow the project's conventions. `--cwd` must be the repo's parent checkout: the space root (its bare `.git`) or, outside a space, the main checkout. A linked worktree such as `worktrees/main` is rejected with `linked_worktree_source`. If no workspace is open on the repo yet, Herdr opens one as the group's parent; leave it open. Verified with herdr 0.9.5.
 
 Session naming: `[project]-[task-ref]`, e.g. `web-login-form`. Same name for the Claude display name, the Remote Control name, and the Herdr agent name.
 
 ```bash
-# 0. the dev's environment: resolve the harness's env: block (see Dev
-#    environment) into --env flags. Shown for claude with inherit: [CLAUDE_CONFIG_DIR];
-#    one --env per resolved pair, inherited vars only when set in your own env.
-env_args=()
-[ -n "${CLAUDE_CONFIG_DIR:-}" ] && env_args+=(--env "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR")
+# 1. the dev's worktree workspace, no focus steal
+ws=$(herdr worktree open --cwd "$SPACE_ROOT" --path "$WORKTREE" --label "$REF" --no-focus)
+root_pane=$(jq -r .result.root_pane.pane_id <<<"$ws")
 
-# 1. tab, cwd = space root, no focus steal; the env flags apply to the pane shell,
-#    so everything started in it (agent start included) sees them
-WORKSPACE=$(herdr pane current --current | jq -r .result.pane.workspace_id)
-tab=$(herdr tab create --workspace "$WORKSPACE" --cwd "$SPACE_ROOT" --label "$REF" --no-focus "${env_args[@]}")
-tab_id=$(jq -r .result.tab.tab_id <<<"$tab")
-root_pane=$(jq -r .result.root_pane.pane_id <<<"$tab")
+# 2. the dev's environment: `worktree open` takes no --env, so resolve the
+#    harness's env: block (see Dev environment) and export it in the pane shell,
+#    where agent start picks it up. Shown for claude with inherit: [CLAUDE_CONFIG_DIR];
+#    inherited vars only when set in your own env. The export shows in the pane's
+#    scrollback, so never put a secret in an env: block.
+exports=()
+[ -n "${CLAUDE_CONFIG_DIR:-}" ] && exports+=("CLAUDE_CONFIG_DIR=$(printf %q "$CLAUDE_CONFIG_DIR")")
+[ ${#exports[@]} -gt 0 ] && herdr pane run "$root_pane" "export ${exports[*]}"
 
-# 2. the dev in the root pane, named (+ remote control for Claude Code); the
+# 3. the dev in the root pane, named (+ remote control for Claude Code); the
 #    question tool is denied so questions come to you, not the operator
 #    (see Chain of command)
 name="${PROJECT}-${REF}"
@@ -34,7 +34,7 @@ herdr agent start "$name" --kind claude --pane "$root_pane" \
 # other harnesses: --kind <herdr_kind from the config>, args after `--` per that
 # CLI, always denying its ask-the-operator tool (pi: `--exclude-tools ask_user`).
 # `agent start` runs the kind's canonical executable, so the dev's account and
-# config come from the --env flags above, never from a shell alias or wrapper.
+# config come from the exports above, never from a shell alias or wrapper.
 # If `agent start` rejects a kind or a wrapper script, fall back to
 #   herdr pane run "$root_pane" "<launch command from the config>"
 #   herdr agent rename "$root_pane" "$name"
