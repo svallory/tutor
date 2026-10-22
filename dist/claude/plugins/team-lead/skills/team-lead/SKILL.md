@@ -94,11 +94,12 @@ Read `$CLAUDE_PLUGIN_ROOT/skills/team-lead/references/harness-setup.md` when the
    Elsewhere: `git worktree add "../<repo>-<ref>" -b "$BRANCH"` and use that path.
 5. **Launch devs** on the harness and model the config's `routing` gives the role, in the [launch mode](#launch-mode) detected for the session. Orca: pick the machine per [Orca mode](#orca-mode) and adopt the dev as a worker. Herdr: [Herdr mode](#herdr-mode) for every harness. Plain: a Claude Code dev uses the Agent tool with `run_in_background: true`; another harness runs non-interactively in a background shell (e.g. `codex exec`, `kimi -p`) with its report written to a file, prefixed with the `env KEY=VALUE ...` pairs its config's `env:` block resolves to (*Dev environment* in `$CLAUDE_PLUGIN_ROOT/skills/team-lead/references/harness-setup.md`).
 6. **Brief each dev** with the [dev brief template](#dev-brief-template). In Orca mode the brief travels as the worker spec; elsewhere it is sent as a message.
-7. **Monitor.** Act on completion notifications. Do not poll. Keep a status table (ref, dev, model, state, machine, worktree, last note).
+7. **Monitor.** Act on completion notifications. Do not poll. Keep a status table (ref, dev, model, state, machine, worktree, last note). In Herdr mode, arm the [stall watchdog](#stall-watchdog-herdr-no-tokens) now — after the first dev is launched, not before — and note in the status table header that it is running, with the leader name you passed it.
 8. **Review** every delivery with the [review checklist](#review-checklist). Send back with specific findings, or accept.
    Accepted means: the dev pushes and opens the PR against the project's base branch (template filled, tracker/issue link, human title). You decide readiness; do not wait for the user. Then spawn a **fresh** agent (not the dev, so it is not anchored on the dev's reasoning) that runs the `/code-review` skill on the PR number. The reviewer sends its findings **straight to the dev** and the two loop without you (see [Reviewers talk to devs](#reviewers-talk-to-devs)); you hear the ACCEPT, a dispute, or a third round that still blocks. Preview deployments (if the project has them, see the project skill) are the place to verify UI changes — hand the URL to a Haiku/Playwright checker when the change is visible.
 9. **Project-specific steps.** If the project skill loaded in step 0 defines extra steps before a PR is ready (release notes, changelog, demo, docs), run them through the dev; the project skill owns the how and the judgment rules.
-10. **Report** to the user: done / in review / blocked / not started, with links to branches or PRs. State changes and decisions only, one line each; never restate what an agent reported (the user can read the report file).
+10. **Close the team effort.** When the last dev is retired, stop everything that only made sense while the team existed, before the final report: the stall watchdog (`stall-watch.sh --stop <leader>`, see [Stall watchdog](#stall-watchdog-herdr-no-tokens)), the status Monitor, and any background verifier or reviewer of yours. A watcher that outlives the team keeps prompting you — into your input box, possibly while the operator is typing — about devs that are gone. Same when the batch is paused for the day or handed to another lead.
+11. **Report** to the user: done / in review / blocked / not started, with links to branches or PRs. State changes and decisions only, one line each; never restate what an agent reported (the user can read the report file).
 
 ## Definition of DONE
 
@@ -278,6 +279,12 @@ Calibrate budgets: after each task write the actual brief→DONE time next to th
 
 Herdr mode only. Read `$CLAUDE_PLUGIN_ROOT/skills/team-lead/references/herdr-mode.md` (*Stall watchdog*) before you arm the watchdog; in Orca mode the equivalent is the blocking `check --wait` in `$CLAUDE_PLUGIN_ROOT/skills/team-lead/references/orca-mode.md`, plus the liveness verdicts the status script reports.
 
+The watchdog has a lifecycle tied to the team, and you own both ends of it:
+
+- **Arm** right after you launch the first dev (workflow step 7). Not at skill load, not while planning: it watches devs, and with none in flight it only ever finds a "stalled" team and prompts you about it.
+- **Disarm** with `stall-watch.sh --stop <leader>` when the last dev is retired (workflow step 10), when the batch pauses for the day, or when you hand the team to another lead. Do it before the final report; a batch is not closed while its watcher still runs.
+- `stall-watch.sh --status <leader>` tells you whether one is running for you. One watcher per leader — a second start is refused while the first is alive.
+
 
 ## Protect the lead's own files
 
@@ -320,6 +327,7 @@ Keep one in your working notes (`notes/team-lead-<date>.md` in a hyper space, `a
 - A dev is on attempt 4+.
 - You spawned the top tier for a task a cheaper one has not failed at.
 - You are tailing a dev's output in a loop instead of waiting for its notification.
+- The stall watchdog is running and you have no dev in flight — it was armed before the first dev, or not stopped after the last one.
 - Your brief contains your hypothesis about the fix instead of the facts.
 - Status table is stale relative to what you told the user.
 - You are about to brief a dev on a task whose acceptance criteria you inferred rather than read.

@@ -2,7 +2,7 @@
 
 ## Harness-independent agent messaging
 
-**Problem.** `herdr agent prompt` types messages into the receiver's terminal, so a message can collide with the operator typing in that pane. `SendMessage` and [pi-claude-link](https://github.com/alonw0/pi-claude-link) avoid the terminal but only cover Claude Code and pi, rely on Claude Code's private cross-session protocol, and pass every message through the `crossSessionInbound` approval gate. Codex and Kimi devs, and `scripts/stall-watch.sh` (`herdr agent prompt` at line 112), still type into the lead's pane.
+**Problem.** `herdr agent prompt` types messages into the receiver's terminal, so a message can collide with the operator typing in that pane. `SendMessage` and [pi-claude-link](https://github.com/alonw0/pi-claude-link) avoid the terminal but only cover Claude Code and pi, rely on Claude Code's private cross-session protocol, and pass every message through the `crossSessionInbound` approval gate. Codex and Kimi devs, and `scripts/stall-watch.sh` (its `deliver()` uses `herdr agent prompt`), still type into the lead's pane.
 
 **Plan (supersedes the earlier `agent-link` CLI idea).** This is being solved outside this skill, as part of Hyper:
 
