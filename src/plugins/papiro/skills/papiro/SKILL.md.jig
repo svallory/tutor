@@ -44,6 +44,7 @@ The user reads the sheet cold, often hours later, without the chat. Every term t
 - **`summary` is the reason in one or two sentences.** It is always visible. Put the full reasoning, the alternatives you ruled out, examples and code in `details`; the page shows it collapsed as "In-depth look".
 - **`resources` are only what you already have in hand**: files you read or changed (paths relative to the repo root) and links you were given or used. Never run a search to fill it. Leave it out when there is nothing.
 - An option's `description` says what picking it means: what changes, what it costs, what it rules out.
+- **Only what the reader can still change.** A fact, a step that already ran, or a choice the reader made themselves is not a question: say it in the chat and keep the sheet to the decisions that are still open.
 
 ## JSON format
 
